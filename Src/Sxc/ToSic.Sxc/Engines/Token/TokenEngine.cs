@@ -1,15 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
-using ToSic.Eav.Documentation;
 using ToSic.Eav.LookUp;
-using ToSic.Eav.Plumbing;
+using ToSic.Lib.DI;
+using ToSic.Lib.Documentation;
 using ToSic.Sxc.Blocks;
 using ToSic.Sxc.Code;
-using ToSic.Sxc.Engines.Token;
 using ToSic.Sxc.LookUp;
 
 // ReSharper disable once CheckNamespace
@@ -74,18 +74,20 @@ namespace ToSic.Sxc.Engines
 
         #region Constructor / DI
 
-        private readonly Lazy<DynamicCodeRoot> _dynCodeRootLazy;
+        private readonly LazySvc<DynamicCodeRoot> _dynCodeRootLazy;
+        private readonly Generator<AppConfigDelegate> _appConfigDelegateGenerator;
 
-        public TokenEngine(EngineBaseDependencies helpers, Lazy<DynamicCodeRoot> dynCodeRootLazy) : base(helpers)
-        {
-            _dynCodeRootLazy = dynCodeRootLazy;
-        }
+        public TokenEngine(MyServices services, LazySvc<DynamicCodeRoot> dynCodeRootLazy, Generator<AppConfigDelegate> appConfigDelegateGenerator) : base(services) =>
+            ConnectServices(
+                _dynCodeRootLazy = dynCodeRootLazy,
+                _appConfigDelegateGenerator = appConfigDelegateGenerator
+            );
 
         #endregion
 
-        private DynamicCodeRoot _data;
+        private IDynamicCodeRoot _data;
 
-        private TokenReplaceEav _tokenReplace;
+        private TokenReplace _tokenReplace;
 
         [PrivateApi]
         protected override void Init()
@@ -95,12 +97,12 @@ namespace ToSic.Sxc.Engines
             InitTokenReplace();
         }
 
-        private void InitDataHelper() => _data = _dynCodeRootLazy.Value.Init(Block, Log, 9);
+        private void InitDataHelper() => _data = _dynCodeRootLazy.Value.InitDynCodeRoot(Block, Log, Constants.CompatibilityLevel9Old);
 
         private void InitTokenReplace()
         {
-            var confProv = Block.Context.ServiceProvider.Build<AppConfigDelegate>().Init(Log).GetConfigProviderForModule(Block.Context, Block.App, Block);
-            _tokenReplace = new TokenReplaceEav(confProv);
+            var confProv = _appConfigDelegateGenerator.New().GetLookupEngineForContext(Block.Context, Block.App, Block);
+            _tokenReplace = new TokenReplace(confProv);
             
             // Add the Content and ListContent property sources used always
             confProv.Add(new LookUpForTokenTemplate(SourcePropertyName.ListContent, _data.Header));
@@ -108,10 +110,9 @@ namespace ToSic.Sxc.Engines
         }
 
 
-        /// <inheritdoc />
-        protected override string RenderTemplate()
+        protected override string RenderTemplate(object data)
         {
-            var templateSource = File.ReadAllText(Helpers.ServerPaths.FullAppPath(TemplatePath));
+            var templateSource = File.ReadAllText(Services.ServerPaths.FullAppPath(TemplatePath));
             // Convert old <repeat> elements to the new ones
             for (var upgrade = 0; upgrade < _upgrade6To7.Length/2; upgrade++)
                 templateSource = templateSource.Replace(_upgrade6To7[upgrade, 0], _upgrade6To7[upgrade, 1]);
@@ -153,7 +154,7 @@ namespace ToSic.Sxc.Engines
             if (!DataSource.Out.ContainsKey(streamName))
                 throw new ArgumentException("Was not able to implement REPEAT because I could not find Data:" + streamName + ". Please check spelling the pipeline delivering data to this template.");
 
-            var dataItems = DataSource[streamName].Immutable;
+            var dataItems = DataSource[streamName].List.ToImmutableList();
             var itemsCount = dataItems.Count;
             for (var i = 0; i < itemsCount; i++)
             {

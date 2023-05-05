@@ -1,41 +1,35 @@
-﻿using System;
-using System.Web.Http;
-using DotNetNuke.Security;
+﻿using DotNetNuke.Security;
 using DotNetNuke.Web.Api;
-using ToSic.SexyContent.WebApi;
-using ToSic.Sxc.WebApi.FieldList;
+using System;
+using System.Web.Http;
+using ToSic.Eav.WebApi.Cms;
+using ToSic.Sxc.WebApi;
+using ToSic.Sxc.WebApi.Cms;
 
 namespace ToSic.Sxc.Dnn.WebApi.Cms
 {
-    [SupportedModules("2sxc,2sxc-app")]
+    [SupportedModules(DnnSupportedModuleNames)]
     [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.Edit)]
-    public class ListController: SxcApiController
+    public class ListController: SxcApiControllerBase<ListControllerReal>, IListController
     {
-        protected override string HistoryLogName => "Api.List";
+        public ListController() : base(ListControllerReal.LogSuffix) { }
 
-        private FieldListBackend FieldBacked => GetService<FieldListBackend>().Init(Log);
-
+        /// <inheritdoc />
         /// <summary>
         /// used to be GET Module/ChangeOrder
         /// </summary>
-        /// <param name="parent"></param>
-        /// <param name="fields"></param>
-        /// <param name="index"></param>
-        /// <param name="toIndex"></param>
         [HttpPost]
         public void Move(Guid? parent, string fields, int index, int toIndex)
-            => FieldBacked.ChangeOrder(parent, fields, index, toIndex);
+            => Real.Move(parent, fields, index, toIndex);
 
 
+        /// <inheritdoc />
         /// <summary>
         /// Used to be Get Module/RemoveFromList
         /// </summary>
-        /// <param name="parent"></param>
-        /// <param name="fields"></param>
-        /// <param name="index"></param>
         [HttpDelete]
         public void Delete(Guid? parent, string fields, int index)
-            => FieldBacked.Remove(parent, fields, index);
+            => Real.Delete(parent, fields, index);
 
     }
 }

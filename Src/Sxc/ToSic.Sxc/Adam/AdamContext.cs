@@ -1,12 +1,14 @@
 ﻿using System;
 using ToSic.Eav.Apps;
+using ToSic.Eav.Apps.Security;
 using ToSic.Eav.Configuration;
+using ToSic.Eav.Context;
 using ToSic.Eav.Data;
-using ToSic.Eav.Logging;
-using ToSic.Eav.Plumbing;
+using ToSic.Lib.Logging;
 using ToSic.Eav.WebApi.Errors;
-using ToSic.Eav.WebApi.Security;
-using ToSic.Sxc.Context;
+using ToSic.Lib.DI;
+using ToSic.Lib.Services;
+using static ToSic.Eav.Configuration.BuiltInFeatures;
 
 namespace ToSic.Sxc.Adam
 {
@@ -16,15 +18,32 @@ namespace ToSic.Sxc.Adam
     /// <remarks>
     /// It's abstract, because there will be a typed implementation inheriting this
     /// </remarks>
-    public abstract class AdamContext: HasLog
+    public abstract class AdamContext: ServiceBase<AdamContext.MyServices>
     {
         #region Constructor and DI
 
-        protected AdamContext(IServiceProvider serviceProvider, string logName) : base(logName ?? "Adm.Ctx")
+        public class MyServices: MyServicesBase
         {
-            ServiceProvider = serviceProvider;
+            public LazySvc<IFeaturesInternal> FeaturesSvc { get; }
+            public Generator<AdamSecurityChecksBase> AdamSecurityGenerator { get; }
+            public Generator<MultiPermissionsTypes> TypesPermissions { get; }
+
+            public MyServices(
+                Generator<MultiPermissionsTypes> typesPermissions,
+                Generator<AdamSecurityChecksBase> adamSecurityGenerator,
+                LazySvc<IFeaturesInternal> featuresSvc)
+            {
+                ConnectServices(
+                    TypesPermissions = typesPermissions,
+                    AdamSecurityGenerator = adamSecurityGenerator,
+                    FeaturesSvc = featuresSvc
+                );
+            }
         }
-        public readonly IServiceProvider ServiceProvider;
+
+        protected AdamContext(MyServices services, string logName) : base(services, logName ?? "Adm.Ctx")
+        {
+        }
         public AdamSecurityChecksBase Security;
         public MultiPermissionsTypes Permissions;
 
@@ -35,15 +54,13 @@ namespace ToSic.Sxc.Adam
         /// <summary>
         /// Initializes the object and performs all the initial security checks
         /// </summary>
-        public virtual AdamContext Init(IContextOfApp context, string contentType, string fieldName, Guid entityGuid, bool usePortalRoot, ILog parentLog)
+        public virtual AdamContext Init(IContextOfApp context, string contentType, string fieldName, Guid entityGuid, bool usePortalRoot)
         {
-            Log.LinkTo(parentLog);
-            var appId = context.AppState.AppId;
-            var callLog = Log.Call<AdamContext>($"app: {context.AppState.Show()}, field:{fieldName}, guid:{entityGuid}");
+            var callLog = Log.Fn<AdamContext>($"app: {context.AppState.Show()}, field:{fieldName}, guid:{entityGuid}");
             Context = context;
 
-            Permissions = ServiceProvider.Build<MultiPermissionsTypes>()
-                .Init(context, context.AppState, contentType, Log);
+            Permissions = Services.TypesPermissions.New()
+                .Init(context, context.AppState, contentType);
 
             // only do checks on field/guid if it's actually accessing that, if it's on the portal root, don't.
             UseSiteRoot = usePortalRoot;
@@ -53,22 +70,27 @@ namespace ToSic.Sxc.Adam
                 ItemGuid = entityGuid;
             }
 
-            Security = ServiceProvider.Build<AdamSecurityChecksBase>().Init(this, usePortalRoot, Log);
+            Security = Services.AdamSecurityGenerator.New().Init(this, usePortalRoot);
 
             if (Security.MustThrowIfAccessingRootButNotAllowed(usePortalRoot, out var exception))
                 throw exception;
 
-            Log.Add("check if feature enabled");
-            if (Security.UserIsRestricted && !Eav.Configuration.Features.Enabled(FeaturesForRestrictedUsers))
+            Log.A("check if feature enabled");
+            var sysFeatures = Services.FeaturesSvc.Value;
+            if (Security.UserIsRestricted && !sysFeatures.Enabled(FeaturesForRestrictedUsers))
+            {
+                var msg = sysFeatures.MsgMissingSome(FeaturesForRestrictedUsers);
                 throw HttpException.PermissionDenied(
-                    $"low-permission users may not access this - {Eav.Configuration.Features.MsgMissingSome(FeaturesForRestrictedUsers)}");
+                    $"low-permission users may not access this - {msg}");
 
-            if (string.IsNullOrEmpty(contentType) || string.IsNullOrEmpty(fieldName)) return callLog(null, this);
+            }
 
-            Attribute = AttributeDefinition(appId, contentType, fieldName);
+            if (string.IsNullOrEmpty(contentType) || string.IsNullOrEmpty(fieldName)) return callLog.Return(this);
+
+            Attribute = AttributeDefinition(context.AppState, contentType, fieldName);
             if (!Security.FileTypeIsOkForThisField(out var exp))
                 throw exp;
-            return callLog(null, this);
+            return callLog.Return(this);
         }
 
         #endregion
@@ -99,17 +121,17 @@ namespace ToSic.Sxc.Adam
 
         public readonly Guid[] FeaturesForRestrictedUsers =
         {
-            FeatureIds.PublicUpload,
-            FeatureIds.PublicForms
+            PublicUploadFiles.Guid,
+            PublicEditForm.Guid,
         };
 
 
         /// <summary>
         /// try to find attribute definition - for later extra security checks
         /// </summary>
-        private IContentTypeAttribute AttributeDefinition(int appId, string contentType, string fieldName)
+        private IContentTypeAttribute AttributeDefinition(AppState appState, string contentType, string fieldName)
         {
-            var type = State.Get(appId).GetContentType(contentType);
+            var type = appState /*State.Get(appId)*/.GetContentType(contentType);
             return type[fieldName];
         }
 

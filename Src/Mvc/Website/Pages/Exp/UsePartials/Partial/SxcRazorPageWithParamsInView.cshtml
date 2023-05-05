@@ -23,7 +23,7 @@
 
 <ol>
     <li>
-        App: @App (AppId: @Block.App.AppId) <br />
+        App: @App (AppId: @App.AppId) <br />
         Items: @App.Data (@App.Data.List.Count())<br />
     </li>
     <li>
@@ -35,7 +35,7 @@
     @if (App.Data.Out.ContainsKey("BlogPost"))
     {
         <li>
-            Get data BlogPost: @App.Data["BlogPost"].Immutable.Count()
+            Get data BlogPost: @App.Data["BlogPost"].List.Count()
             @{
                 var last = AsList(App.Data["BlogPost"]).Last();
             }

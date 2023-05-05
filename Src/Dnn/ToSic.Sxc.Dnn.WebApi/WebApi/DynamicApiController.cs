@@ -1,46 +1,101 @@
 ﻿using System;
 using System.IO;
-using System.Net.Http;
 using System.Web.Http.Controllers;
-using ToSic.Eav.Configuration;
-using ToSic.Eav.Documentation;
+using ToSic.Lib.Documentation;
+using ToSic.Lib.Logging;
+using ToSic.Eav.WebApi;
+using ToSic.Lib.DI;
+using ToSic.Lib.Helpers;
+using ToSic.Lib.Services;
 using ToSic.Sxc.Code;
 using ToSic.Sxc.Dnn;
 using ToSic.Sxc.Dnn.Code;
 using ToSic.Sxc.Dnn.Run;
-using ToSic.Sxc.Dnn.Web;
 using ToSic.Sxc.Dnn.WebApi.Logging;
-using ToSic.Sxc.Dnn.WebApiRouting;
+using ToSic.Sxc.LookUp;
 using ToSic.Sxc.WebApi.Adam;
 
 namespace ToSic.Sxc.WebApi
 {
-    /// <inheritdoc cref="SxcApiControllerBase" />
     /// <summary>
     /// This is the foundation for both the old SxcApiController and the new Dnn.ApiController.
     /// incl. the current App, DNN, Data, etc.
     /// For others, please use the SxiApiControllerBase, which doesn't have all that, and is usually then
     /// safer because it can't accidentally mix the App with a different appId in the params
     /// </summary>
-    [PrivateApi]
+    [PrivateApi("This is an internal base class used for the App ApiControllers. Make sure the implementations don't break")]
+    // Note: 2022-02 2dm I'm not sure if this was ever published as the official api controller, but it may have been?
     [DnnLogExceptions]
-    public abstract class DynamicApiController : SxcApiControllerBase, ICreateInstance, IHasDynCodeContext
+    public abstract class DynamicApiController : SxcApiControllerBase<DummyControllerReal>, ICreateInstance, IHasDynamicCodeRoot
     {
-        protected override string HistoryLogName => "Api.DynApi";
+        #region Constructor & DI
+
+        /// <summary>
+        /// Note: normally dependencies are Constructor injected.
+        /// This doesn't work in DNN.
+        /// But for consistency, we're building a comparable structure here.
+        /// </summary>
+        public class MyServices: MyServicesBase
+        {
+            public LazySvc<AppConfigDelegate> AppConfigDelegateLazy { get; }
+            public LazySvc<Apps.App> AppOverrideLazy { get; }
+            public DnnCodeRootFactory DnnCodeRootFactory { get; }
+            public DnnAppFolderUtilities AppFolderUtilities { get; }
+
+            public MyServices(
+                DnnCodeRootFactory dnnCodeRootFactory,
+                DnnAppFolderUtilities appFolderUtilities,
+                LazySvc<Apps.App> appOverrideLazy,
+                LazySvc<AppConfigDelegate> appConfigDelegateLazy)
+            {
+                ConnectServices(
+                    DnnCodeRootFactory = dnnCodeRootFactory,
+                    AppFolderUtilities = appFolderUtilities,
+                    AppOverrideLazy = appOverrideLazy,
+                    AppConfigDelegateLazy = appConfigDelegateLazy
+                );
+            }
+        }
+
+        /// <summary>
+        /// Empty constructor is important for inheriting classes
+        /// </summary>
+        protected DynamicApiController() : base("DynApi") { }
+        protected DynamicApiController(string logSuffix): base(logSuffix) { }
+
+        private MyServices Services => _depsGetter.Get(() => GetService<MyServices>().ConnectServices(Log));
+        private readonly GetOnce<MyServices> _depsGetter = new GetOnce<MyServices>();
+
+        #endregion
+
+        /// <summary>
+        /// The name of the logger in insights.
+        /// The inheriting class should provide the real name to be used.
+        /// </summary>
+        [Obsolete("Deprecated in v13.03 - doesn't serve a purpose any more. Will just remain to avoid breaking public uses of this property.")]
+        // Note: Probably almost never used, except by 2sic. Must determine if we just remove it
+        // ReSharper disable once UnassignedGetOnlyAutoProperty
+        protected virtual string HistoryLogName { get; }
+
 
         protected override void Initialize(HttpControllerContext controllerContext)
         {
             base.Initialize(controllerContext);
-            var block = GetBlock();
-            Log.Add($"HasBlock: {block != null}");
+            var block = GetBlockAndContext()?.LoadBlock();
+            Log.A($"HasBlock: {block != null}");
             // Note that the CmsBlock is created by the BaseClass, if it's detectable. Otherwise it's null
             // if it's null, use the log of this object
-            DynCode = GetService<DnnDynamicCodeRoot>().Init(block, Log);
+            var compatibilityLevel = this is ICompatibleToCode12 ? Constants.CompatibilityLevel12 : Constants.CompatibilityLevel10;
+            _DynCodeRoot = Services.DnnCodeRootFactory
+                .BuildDynamicCodeRoot(this)
+                .InitDynCodeRoot(block, Log, compatibilityLevel);
+            _AdamCode = GetService<AdamCode>();
+            _AdamCode.ConnectToRoot(_DynCodeRoot, Log);
 
             // In case SxcBlock was null, there is no instance, but we may still need the app
-            if (DynCode.App == null)
+            if (_DynCodeRoot.App == null)
             {
-                Log.Add("DynCode.App is null");
+                Log.A("DynCode.App is null");
                 TryToAttachAppFromUrlParams();
             }
 
@@ -51,74 +106,88 @@ namespace ToSic.Sxc.WebApi
                 CreateInstancePath = value as string;
         }
 
+        /// <summary>
+        /// Get a service of a specified type. 
+        /// </summary>
+        /// <typeparam name="TService"></typeparam>
+        /// <returns></returns>
+        /// <remarks>
+        /// This will override the base functionality to ensure that any services created will be able to get the CodeContext.
+        /// </remarks>
+        public override TService GetService<TService>() => _DynCodeRoot != null 
+                ? _DynCodeRoot.GetService<TService>()
+                : base.GetService<TService>();          // If the CodeRoot isn't ready, use standard functionality
+
+
         [PrivateApi]
-        public DnnDynamicCodeRoot DynCode { get; private set; }
+        public IDynamicCodeRoot _DynCodeRoot { get; private set; }
 
-        public IDnnContext Dnn => DynCode.Dnn;
+        // ReSharper disable once InconsistentNaming
+        [PrivateApi]
+#pragma warning disable IDE1006 // Naming Styles
+        public AdamCode _AdamCode { get; private set; }
+#pragma warning restore IDE1006 // Naming Styles
 
-        private void TryToAttachAppFromUrlParams()
+        public IDnnContext Dnn => (_DynCodeRoot as IDnnDynamicCode)?.Dnn;
+
+        private void TryToAttachAppFromUrlParams() => Log.Do(() =>
         {
-            var wrapLog = Log.Call();
             var found = false;
             try
             {
-                var routeAppPath = Route.AppPathOrNull(Request.GetRouteData());
-                var appId = SharedContextResolver.AppOrNull(routeAppPath)?.AppState.AppId ?? Eav.Constants.NullId;
+                var routeAppPath = Services.AppFolderUtilities.GetAppFolder(Request, false);
+                var appState = SharedContextResolver.SetAppOrNull(routeAppPath)?.AppState;
 
-                if (appId != Eav.Constants.NullId)
+                if (appState != default)
                 {
-                    //var appId = AppFinder.GetAppIdFromPath(routeAppPath).AppId;
+                    var siteCtx = SharedContextResolver.Site();
                     // Look up if page publishing is enabled - if module context is not available, always false
-                    Log.Add($"AppId: {appId}");
-                    var app = Factory.App(appId, false, parentLog: Log);
-                    DynCode.LateAttachApp(app);
+                    Log.A($"AppId: {appState.AppId}");
+                    var app = Services.AppOverrideLazy.Value
+                        .PreInit(siteCtx.Site)
+                        .Init(appState, Services.AppConfigDelegateLazy.Value.Build());
+                    _DynCodeRoot.AttachApp(app);
                     found = true;
                 }
-            } catch { /* ignore */ }
+            }
+            catch
+            {
+                /* ignore */
+            }
 
-            wrapLog(found.ToString());
-        }
+            return found.ToString();
+        });
 
 
-        #region Adam - Shared Code Across the APIs (prevent duplicate code)
-
+        #region Adam - Shared Code Across the APIs
         /// <summary>
         /// See docs of official interface <see cref="IDynamicWebApi"/>
         /// </summary>
-        public Sxc.Adam.IFile SaveInAdam(string dontRelyOnParameterOrder = Eav.Constants.RandomProtectionParameter, 
+        public Sxc.Adam.IFile SaveInAdam(string noParamOrder = Eav.Parameters.Protector, 
             Stream stream = null, 
             string fileName = null, 
             string contentType = null, 
             Guid? guid = null, 
             string field = null,
-            string subFolder = "")
-        {
-            Eav.Constants.ProtectAgainstMissingParameterNames(dontRelyOnParameterOrder, "SaveInAdam", 
-                $"{nameof(stream)},{nameof(fileName)},{nameof(contentType)},{nameof(guid)},{nameof(field)},{nameof(subFolder)} (optional)");
-
-            if(stream == null || fileName == null || contentType == null || guid == null || field == null)
-                throw new Exception();
-
-            var feats = new[]{FeatureIds.UseAdamInWebApi, FeatureIds.PublicUpload};
-            if (!Eav.Configuration.Features.EnabledOrException(feats, "can't save in ADAM", out var exp))
-                throw exp;
-
-            var appId = DynCode?.Block?.AppId ?? DynCode?.App?.AppId ?? throw new Exception("Error, SaveInAdam needs an App-Context to work, but the App is not known.");
-            return GetService<AdamTransUpload<int, int>>()
-                .Init(appId, contentType, guid.Value, field, false, Log)
-                .UploadOne(stream, fileName, subFolder, true);
-        }
+            string subFolder = "") =>
+            _AdamCode.SaveInAdam(
+                stream: stream,
+                fileName: fileName,
+                contentType: contentType,
+                guid: guid,
+                field: field,
+                subFolder: subFolder);
 
         #endregion
 
         public string CreateInstancePath { get; set; }
 
         public dynamic CreateInstance(string virtualPath, 
-            string dontRelyOnParameterOrder = Eav.Constants.RandomProtectionParameter,
+            string noParamOrder = Eav.Parameters.Protector,
             string name = null, 
             string relativePath = null, 
             bool throwOnError = true) =>
-            DynCode.CreateInstance(virtualPath, dontRelyOnParameterOrder, name,
+            _DynCodeRoot.CreateInstance(virtualPath, noParamOrder, name,
                 CreateInstancePath, throwOnError);
     }
 }

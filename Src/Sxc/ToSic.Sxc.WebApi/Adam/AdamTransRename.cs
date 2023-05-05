@@ -1,18 +1,16 @@
-﻿using System;
-using System.Linq;
+﻿using System.Linq;
+using ToSic.Lib.Logging;
 using ToSic.Eav.Security.Permissions;
-using ToSic.Sxc.Adam;
-using ToSic.Sxc.Context;
 
 namespace ToSic.Sxc.WebApi.Adam
 {
     public class AdamTransRename<TFolderId, TFileId> : AdamTransactionBase<AdamTransRename<TFolderId, TFileId>, TFolderId, TFileId>
     {
-        public AdamTransRename(Lazy<AdamContext<TFolderId, TFileId>> adamState, IContextResolver ctxResolver) : base(adamState, ctxResolver, "Adm.TrnRen") { }
+        public AdamTransRename(MyServices services) : base(services, "Adm.TrnRen") { }
 
         public bool Rename(string parentSubfolder, bool isFolder, TFolderId folderId, TFileId fileId, string newName)
         {
-            Log.Add($"");
+            Log.A($"");
 
             if (!AdamContext.Security.UserIsPermittedOnField(GrantSets.WriteSomething, out var exp))
                 throw exp;
@@ -42,7 +40,7 @@ namespace ToSic.Sxc.WebApi.Adam
                 fs.Rename(target, newName);
             }
 
-            Log.Add("rename complete");
+            Log.A("rename complete");
             return true;
         }
     }

@@ -2,8 +2,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using ToSic.Eav.Apps;
+using ToSic.Eav.Apps.Run;
 using ToSic.Eav.Data;
-using ToSic.Eav.Logging;
+using ToSic.Eav.DataSource.Query;
+using ToSic.Lib.DI;
+using ToSic.Lib.Logging;
 using ToSic.Sxc.Blocks;
 
 namespace ToSic.Sxc.Apps.Blocks
@@ -12,18 +15,20 @@ namespace ToSic.Sxc.Apps.Blocks
     {
         public  int ZoneId { get; }
         public  int AppId { get; }
-        internal readonly bool ShowDrafts;
         internal Guid? PreviewTemplateId;
 
-        private readonly CmsRuntime _cmsRuntime;
+        internal IBlockIdentifier BlockIdentifierOrNull;
 
-        public BlockConfiguration(IEntity entity, CmsRuntime cmsRuntime, string languageCode, ILog parentLog): base(entity, languageCode, parentLog, "Blk.Config")
+        private readonly IEnumerable<IEntity> _data;
+        private readonly LazySvc<QueryDefinitionBuilder> _qDefBuilder;
+
+        public BlockConfiguration(IEntity entity, IAppIdentity cmsRuntime, IEnumerable<IEntity> data, LazySvc<QueryDefinitionBuilder> qDefBuilder, string languageCode, ILog parentLog): base(entity, languageCode, parentLog, "Blk.Config")
         {
-            Log.Add("Entity is " + (entity == null ? "" : "not") + " null");
-            _cmsRuntime = cmsRuntime;
+            Log.A("Entity is " + (entity == null ? "" : "not") + " null");
+            _data = data;
+            _qDefBuilder = qDefBuilder;
             ZoneId = cmsRuntime.ZoneId;
             AppId = cmsRuntime.AppId;
-            ShowDrafts = cmsRuntime.ShowDrafts;
         }
         
         internal BlockConfiguration WarnIfMissingData()
@@ -53,10 +58,10 @@ namespace ToSic.Sxc.Apps.Blocks
 
                 // if we're previewing another template, look that up
                 var templateEntity = PreviewTemplateId.HasValue
-                    ? _cmsRuntime.Data.Immutable.One(PreviewTemplateId.Value) // ToDo: Should use an indexed Guid filter
+                    ? _data.One(PreviewTemplateId.Value) // ToDo: Should use an indexed Guid filter
                     : Entity?.Children(ViewParts.ViewFieldInContentBlock).FirstOrDefault();
 
-                return _view = templateEntity == null ? null : new View(templateEntity, LookupLanguages, Log);
+                return _view = templateEntity == null ? null : new View(templateEntity, LookupLanguages, Log, _qDefBuilder);
             }
         }
         private IView _view;
@@ -80,7 +85,7 @@ namespace ToSic.Sxc.Apps.Blocks
 
         public List<IEntity> Presentation => Entity?.Children(ViewParts.Presentation) ?? new List<IEntity>();
 
-        public List<IEntity> Header => Entity?.Children(ViewParts.ListContent) ?? new List<IEntity>();
+        public List<IEntity> Header => Entity?.Children(ViewParts.FieldHeader) ?? new List<IEntity>();
 
         public List<IEntity> HeaderPresentation => Entity?.Children(ViewParts.ListPresentation) ?? new List<IEntity>();
 

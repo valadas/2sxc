@@ -1,8 +1,8 @@
 ﻿
 using System.Collections.Generic;
 using System.Collections.Specialized;
-using ToSic.Eav.Documentation;
-#if NET451
+using ToSic.Lib.Documentation;
+#if NETFRAMEWORK
 using System.Web;
 #else
 using Microsoft.AspNetCore.Http;
@@ -14,7 +14,7 @@ namespace ToSic.Sxc.Web
     /// Goal is that anything on this will be able to provide HttpContext operations as needed
     /// To abstract .net451 and .net core
     /// </summary>
-    [InternalApi_DoNotUse_MayChangeWithoutNotice]
+    [PrivateApi("used to be InternalApi_DoNotUse_MayChangeWithoutNotice, hidden 2021-12")]
     public interface IHttp
     {
         /// <summary>
@@ -23,7 +23,7 @@ namespace ToSic.Sxc.Web
         HttpContext Current { get; }
 
         /// <summary>
-        /// The standardized" HttpRequest object. It's type changes depending on the framework it's running in. 
+        /// The standardized" HttpRequest object. It's type changes depending on the framework it's running in.
         /// </summary>
         HttpRequest Request { get; }
 

@@ -1,6 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using ToSic.Lib.DI;
+using ToSic.Sxc.Context.Query;
 using ToSic.Sxc.Web;
+using ToSic.Sxc.Web.Parameters;
 
 namespace ToSic.Sxc.Context
 {
@@ -11,8 +12,8 @@ namespace ToSic.Sxc.Context
         /// <summary>
         /// Constructor for DI
         /// </summary>
-        public Page(Lazy<IHttp> httpLazy) => _httpLazy = httpLazy;
-        private readonly Lazy<IHttp> _httpLazy;
+        public Page(LazySvc<IHttp> httpLazy) => _httpLazy = httpLazy;
+        private readonly LazySvc<IHttp> _httpLazy;
 
         #endregion
 
@@ -24,12 +25,10 @@ namespace ToSic.Sxc.Context
 
         public int Id { get; private set; } = Eav.Constants.NullId;
 
-        public List<KeyValuePair<string, string>> Parameters
-        {
-            get => _parameters ?? (_parameters = _httpLazy.Value?.QueryStringKeyValuePairs() ?? new List<KeyValuePair<string, string>>());
-            set => _parameters = value ?? _parameters;
-        }
-        private List<KeyValuePair<string, string>> _parameters;
+
+        public IParameters Parameters => _parameters ?? (_parameters = new Parameters(OriginalParameters.GetOverrideParams(_httpLazy.Value?.QueryStringParams)));
+        private IParameters _parameters;
+
 
         public string Url { get; set; } = Eav.Constants.UrlNotInitialized;
     }

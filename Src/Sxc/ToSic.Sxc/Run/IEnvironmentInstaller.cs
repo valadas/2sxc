@@ -1,12 +1,9 @@
-﻿using ToSic.Eav.Context;
-using ToSic.Eav.Logging;
-using ToSic.Eav.Run;
-using ToSic.Sxc.Context;
+﻿using ToSic.Lib.Logging;
 
 
 namespace ToSic.Sxc.Run
 {
-    public interface IEnvironmentInstaller: IHasLog<IEnvironmentInstaller>
+    public interface IEnvironmentInstaller: IHasLog
     {
         /// <summary>
         /// Get upgrade messages to show to the user if the upgrade/install needs attention
@@ -20,6 +17,6 @@ namespace ToSic.Sxc.Run
         /// <returns></returns>
         bool ResumeAbortedUpgrade();
 
-        string GetAutoInstallPackagesUiUrl(ISite site, IModule module, bool forContentApp);
+        //string GetAutoInstallPackagesUiUrl(ISite site, IModule module, bool forContentApp);
     }
 }

@@ -1,6 +1,7 @@
 ﻿using System.Web.Http.Controllers;
-using ToSic.Eav.Documentation;
-using ToSic.Eav.Plumbing;
+using ToSic.Lib.Documentation;
+using ToSic.Lib.Helpers;
+using ToSic.Lib.Logging;
 using ToSic.Sxc.Blocks;
 using ToSic.Sxc.Context;
 using ToSic.Sxc.Dnn.WebApi;
@@ -14,25 +15,22 @@ namespace ToSic.Sxc.WebApi
     /// But it will NOT provide an App or anything like that
     /// </summary>
     [DnnLogExceptions]
-    public class SxcApiControllerBase: DnnApiControllerWithFixes
+    [PrivateApi("This was only ever used as an internal base class, so it can be modified as needed - just make sure the derived types don't break")]
+    public abstract class SxcApiControllerBase<TRealController>: DnnApiControllerWithFixes<TRealController> where TRealController : class, IHasLog
     {
-        protected override string HistoryLogName => "Api.CntBas";
+        protected SxcApiControllerBase(string logSuffix) : base(logSuffix) { }
 
         protected override void Initialize(HttpControllerContext controllerContext)
         {
             base.Initialize(controllerContext);
             SharedContextResolver = GetService<IContextResolver>();
-            SharedContextResolver.AttachRealBlock(() => BlockOfRequest);
-            SharedContextResolver.AttachBlockContext(() => BlockOfRequest?.Context);
+            SharedContextResolver.AttachBlock(GetBlockAndContext());
         }
 
         protected IContextResolver SharedContextResolver;
 
-        private IBlock BlockOfRequest
-            => _blockOfRequest ?? (_blockOfRequest = GetService<DnnGetBlock>().GetCmsBlock(Request, Log));
-        private IBlock _blockOfRequest;
-
-        [PrivateApi] protected IBlock GetBlock() => BlockOfRequest;
+        [PrivateApi] protected BlockWithContextProvider GetBlockAndContext() => _blcCtx.Get(() => GetService<DnnGetBlock>().GetCmsBlock(Request));
+        private readonly GetOnce<BlockWithContextProvider> _blcCtx = new GetOnce<BlockWithContextProvider>();
 
     }
 }

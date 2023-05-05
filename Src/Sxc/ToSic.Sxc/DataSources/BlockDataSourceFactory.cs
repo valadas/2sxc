@@ -1,39 +1,44 @@
-﻿using System;
+﻿using ToSic.Eav.Configuration;
+using ToSic.Eav.DataSource;
+using ToSic.Eav.DataSource.Query;
 using ToSic.Eav.DataSources;
-using ToSic.Eav.DataSources.Queries;
-using ToSic.Eav.Documentation;
-using ToSic.Eav.Logging;
+using ToSic.Lib.DI;
+using ToSic.Lib.Logging;
 using ToSic.Eav.LookUp;
+using ToSic.Eav.Services;
+using ToSic.Lib.Documentation;
 using ToSic.Sxc.Blocks;
+using ServiceBase = ToSic.Lib.Services.ServiceBase;
 
 namespace ToSic.Sxc.DataSources
 {
-    public class BlockDataSourceFactory: HasLog<BlockDataSourceFactory>
+    public class BlockDataSourceFactory: ServiceBase
     {
-        private readonly DataSourceFactory _dataSourceFactory;
-        private readonly Lazy<Query> _queryLazy;
+        #region Constructor
 
-        public BlockDataSourceFactory(DataSourceFactory dataSourceFactory, Lazy<Query> queryLazy): base("Sxc.BDsFct")
+        public BlockDataSourceFactory(LazySvc<IDataSourcesService> dataSourceFactory, LazySvc<Query> queryLazy): base("Sxc.BDsFct")
         {
-            _dataSourceFactory = dataSourceFactory;
-            _queryLazy = queryLazy;
+            ConnectServices(
+                _dataSourceFactory = dataSourceFactory,
+                _queryLazy = queryLazy
+            );
         }
+        private readonly LazySvc<IDataSourcesService> _dataSourceFactory;
+        private readonly LazySvc<Query> _queryLazy;
+
+        #endregion
 
 
         [PrivateApi]
-        internal IBlockDataSource GetBlockDataSource(IBlock block, ILookUpEngine configurationProvider)
+        internal IBlockDataSource GetBlockDataSource(IBlock block, ILookUpEngine configLookUp)
         {
-            // var log = new Log("DS.CreateV", parentLog, "will create view data source");
+            var wrapLog = Log.Fn<IBlockDataSource>($"mid:{block.Context.Module.Id}, userMayEdit:{block.Context.UserMayEdit}, view:{block.View?.Name}");
             var view = block.View;
-            var showDrafts = block.Context.UserMayEdit;
 
-            Log.Add($"mid#{block.Context.Module.Id}, draft:{showDrafts}, template:{block.View?.Name}");
             // Get ModuleDataSource
-            var dsFactory = _dataSourceFactory.Init(Log); // new DataSource(log);
-            //var block = builder.Block;
-            var initialSource = dsFactory.GetPublishing(block, showDrafts, configurationProvider);
-            var moduleDataSource = dsFactory.GetDataSource<CmsBlock>(initialSource);
-            //moduleDataSource.InstanceId = instanceId;
+            var dsFactory = _dataSourceFactory.Value;
+            var initialSource = dsFactory.CreateDefault(new DataSourceOptions(appIdentity: block, lookUp: configLookUp));
+            var moduleDataSource = dsFactory.Create<CmsBlock>(attach: initialSource);
 
             moduleDataSource.OverrideView = view;
             moduleDataSource.UseSxcInstanceContentGroup = true;
@@ -42,31 +47,31 @@ namespace ToSic.Sxc.DataSources
             var viewDataSourceUpstream = view?.Query == null
                 ? moduleDataSource
                 : null;
-            Log.Add($"use pipeline upstream:{viewDataSourceUpstream != null}");
+            Log.A($"use query upstream:{viewDataSourceUpstream != null}");
 
-            var viewDataSource = dsFactory.GetDataSource<Block>(block, viewDataSourceUpstream, configurationProvider);
+            var viewDataSource = dsFactory.Create<Block>(attach: viewDataSourceUpstream, options: new DataSourceOptions(appIdentity: block, lookUp: configLookUp));
 
             // Take Publish-Properties from the View-Template
             if (view != null)
             {
+                // Note: Deprecated feature in v13, remove ca. 14 - should warn
                 viewDataSource.Publish.Enabled = view.PublishData;
                 viewDataSource.Publish.Streams = view.StreamsToPublish;
 
-                Log.Add($"use template, & pipe#{view.Query?.Id}");
-                // Append Streams of the Data-Pipeline (this doesn't require a change of the viewDataSource itself)
+                Log.A($"use template, & query#{view.Query?.Id}");
+                // Append Streams of the Data-Query (this doesn't require a change of the viewDataSource itself)
                 if (view.Query != null)
                 {
-                    Log.Add("Generate query");
-                    var query = _queryLazy.Value.Init(block.App.ZoneId, block.App.AppId, view.Query.Entity, configurationProvider, showDrafts, viewDataSource, Log);
-                    Log.Add("attaching");
+                    Log.A("Generate query");
+                    var query = _queryLazy.Value.Init(block.App.ZoneId, block.App.AppId, view.Query.Entity, configLookUp, viewDataSource);
+                    Log.A("attaching");
                     viewDataSource.SetOut(query);
-                    //viewDataSource.Out = query.Out;
                 }
             }
             else
-                Log.Add("no template override");
+                Log.A("no template override");
 
-            return viewDataSource;
+            return wrapLog.ReturnAsOk(viewDataSource);
         }
     }
 }

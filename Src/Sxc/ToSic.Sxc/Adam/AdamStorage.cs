@@ -1,8 +1,8 @@
-﻿using ToSic.Eav.Logging;
+﻿using ToSic.Lib.Services;
 
 namespace ToSic.Sxc.Adam
 {
-    public abstract class AdamStorage: HasLog<AdamStorage>
+    public abstract class AdamStorage: ServiceBase
     {
         protected AdamStorage(string logName) : base(logName)
         {

@@ -1,8 +1,14 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Dynamic;
+using System.Text.Json.Nodes;
 using ToSic.Eav.Data;
-using ToSic.Eav.Documentation;
+using ToSic.Eav.Data.Debug;
+using ToSic.Eav.Data.PropertyLookup;
+using ToSic.Lib.Data;
+using ToSic.Lib.Documentation;
+using ToSic.Lib.Logging;
 
 namespace ToSic.Sxc.Data
 {
@@ -12,12 +18,11 @@ namespace ToSic.Sxc.Data
     /// </summary>
     /// <typeparam name="T">The underlying type, either a JObject or a JToken</typeparam>
     [InternalApi_DoNotUse_MayChangeWithoutNotice("just use the objects from AsDynamic, don't use this directly")]
-    public abstract class DynamicJacketBase<T>: DynamicObject, IReadOnlyList<object>, IWrapper<T>
+    public abstract class DynamicJacketBase<T>: DynamicObject, IReadOnlyList<object>, IWrapper<T>, IPropertyLookup, ISxcDynamicObject, ICanGetByName
     {
-        /// <summary>
-        /// The underlying data, in case it's needed for various internal operations.
-        /// </summary>
-        public T UnwrappedContents { get; }
+        [PrivateApi]
+        protected T UnwrappedContents;
+        public T GetContents() => UnwrappedContents;
 
         /// <summary>
         /// Check if it's an array.
@@ -34,13 +39,15 @@ namespace ToSic.Sxc.Data
 
         /// <summary>
         /// Enable enumeration. When going through objects (properties) it will return the keys, not the values. <br/>
-        /// Use the [key] accessor to get the values as <see cref="DynamicJacketList"/> or <see cref="ToSic.Sxc"/>
+        /// Use the [key] accessor to get the values as <see cref="DynamicJacketList"/> or <see cref="Data"/>
         /// </summary>
         /// <returns></returns>
+        [PrivateApi]
         public abstract IEnumerator<object> GetEnumerator();
 
 
         /// <inheritdoc />
+        [PrivateApi]
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
         /// <summary>
@@ -50,14 +57,19 @@ namespace ToSic.Sxc.Data
         public override string ToString() => UnwrappedContents.ToString();
 
         /// <inheritdoc />
-        public int Count => ((IList) UnwrappedContents).Count;
+        public dynamic Get(string name) => FindValueOrNull(name, StringComparison.InvariantCultureIgnoreCase, null);
+
+        /// <inheritdoc />
+        public int Count => UnwrappedContents is IList<JsonNode> jArray
+            ? jArray.Count
+            : UnwrappedContents is JsonObject jObject ? jObject.Count : 0;
 
         /// <summary>
         /// Not yet implemented accessor - must be implemented by the inheriting class.
         /// </summary>
         /// <param name="index"></param>
         /// <returns>a <see cref="System.NotImplementedException"/></returns>
-        public virtual object this[int index] => throw new System.NotImplementedException();
+        public abstract object this[int index] { get; }
 
         /// <summary>
         /// Fake property binder - just ensure that simple properties don't cause errors. <br/>
@@ -73,5 +85,19 @@ namespace ToSic.Sxc.Data
             result = null;
             return true;
         }
+
+        /// <inheritdoc />
+        [PrivateApi("Internal")]
+        public PropReqResult FindPropertyInternal(PropReqSpecs specs, PropertyLookupPath path)
+        {
+            path = path.KeepOrNew().Add("DynJacket", specs.Field);
+            var result = FindValueOrNull(specs.Field, StringComparison.InvariantCultureIgnoreCase, specs.LogOrNull);
+            return new PropReqResult(result, path) { FieldType = Attributes.FieldIsDynamic, Source = this, Name = "dynamic" };
+        }
+
+        public abstract List<PropertyDumpItem> _Dump(PropReqSpecs specs, string path);
+
+        protected abstract object FindValueOrNull(string name, StringComparison comparison, ILog parentLogOrNull);
+
     }
 }

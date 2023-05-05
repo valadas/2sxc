@@ -67,11 +67,24 @@ namespace ToSic.Sxc.Mvc.WebApi.Cms
         public IEnumerable<EntityForPickerDto> EntityPicker(int appId, [FromBody] string[] items, string contentTypeName = null)
             => EntityBackend.Init(Log).GetAvailableEntities(appId, items, contentTypeName);
 
+        // 2021-04-13 2dm should be unused now
+        ///// <inheritdoc />
+        //[HttpGet]
+        //// [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.View)]
+        //public string LookupLink(string link, int appId, string contentType = default, Guid guid = default, string field = default)
+        //    => _linkBackendLazy.Value.Init(Log).ResolveHyperlink(appId, link, contentType, guid, field);
+
         /// <inheritdoc />
         [HttpGet]
-        // [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.View)]
-        public string LookupLink(string link, int appId, string contentType = default, Guid guid = default, string field = default)
-            => _linkBackendLazy.Value.Init(Log).ResolveHyperlink(appId, link, contentType, guid, field);
+        //[DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.View)]
+        public LinkInfoDto LinkInfo(string link, int appId, string contentType = default, Guid guid = default, string field = default)
+            => _linkBackendLazy.Value.Init(Log).LookupHyperlink(appId, link, contentType, guid, field);
+
+        /// <inheritdoc />
+        [HttpPost]
+        //[DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.View)]
+        public bool Publish(int id)
+            => false /*Real.Publish(id)*/; // TODO
 
     }
 }

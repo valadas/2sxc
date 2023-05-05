@@ -1,15 +1,27 @@
-﻿using System.Collections.Generic;
-using ToSic.Eav.Documentation;
-
-namespace ToSic.Sxc.Context
+﻿namespace ToSic.Sxc.Context
 {
     // ReSharper disable once PossibleInterfaceMemberAmbiguity
-    public interface IPage : ICmsPage
+    public interface IPage
     {
         /// <summary>
-        /// These parameters can reconfigure what view is used or change
+        /// The Id of the page.
+        /// 
+        /// 🪒 Use in Razor: `CmsContext.Page.Type`
         /// </summary>
-        [PrivateApi("wip")] List<KeyValuePair<string, string>> Parameters { get; set; }
+        /// <remarks>
+        /// Corresponds to the Dnn `TabId` or the Oqtane `Page.PageId`
+        /// </remarks>
+        int Id { get; }
+
+        /// <summary>
+        /// The page parameters, cross-platform.
+        /// Use this for easy access to url parameters like ?id=xyz
+        /// with `CmsContext.Page.Parameters["id"]` as a replacement for `Request.QueryString["id"]`
+        /// 
+        /// 🪒 Use in Razor: `CmsContext.Page.Parameters["id"]`
+        /// </summary>
+        IParameters Parameters { get; }
+
 
         IPage Init(int id);
 

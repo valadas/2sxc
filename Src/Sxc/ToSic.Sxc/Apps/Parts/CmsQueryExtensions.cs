@@ -1,26 +1,24 @@
 ﻿using System;
 using System.Linq;
-using ToSic.Eav.Logging;
+using ToSic.Lib.Logging;
 
 namespace ToSic.Sxc.Apps
 {
     public static class CmsQueryExtensions
     {
-        public static bool DeleteQueryIfNotUsedByView(this CmsManager cms, int id, ILog log)
+        public static bool DeleteQueryIfNotUsedByView(this CmsManager cms, int id, ILog log
+        ) => log.Func($"delete pipe:{id} on app:{cms.AppId}", () =>
         {
-            var wrapLog = log.Call<bool>($"delete pipe:{id} on app:{cms.AppId}");
-
             // Stop if views still use this Query
-            var templatesUsingPipeline = cms.Read.Views.GetAll()
+            var viewUsingQuery = cms.Read.Views.GetAll()
                 .Where(t => t.Query?.Id == id)
                 .Select(t => t.Id)
                 .ToArray();
-            if (templatesUsingPipeline.Any())
-                throw new Exception(
-                    $"Query is used by Views and cant be deleted. Query ID: {id}. TemplateIds: {string.Join(", ", templatesUsingPipeline)}");
+            if (viewUsingQuery.Any())
+                throw new Exception($"Query is used by Views and cant be deleted. Query ID: {id}. TemplateIds: {string.Join(", ", viewUsingQuery)}");
 
-            return wrapLog("ok", cms.Queries.Delete(id));
-        }
+            return cms.Queries.Delete(id);
+        });
 
     }
 }

@@ -1,21 +1,19 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.IO;
+using ToSic.Lib.Logging;
 using ToSic.Eav.Security.Permissions;
 using ToSic.Eav.WebApi.Dto;
 using ToSic.Eav.WebApi.Errors;
-using ToSic.Sxc.Adam;
-using ToSic.Sxc.Context;
 
 namespace ToSic.Sxc.WebApi.Adam
 {
     public class AdamTransFolder<TFolderId, TFileId> : AdamTransactionBase<AdamTransFolder<TFolderId, TFileId>, TFolderId, TFileId>
     {
-        public AdamTransFolder(Lazy<AdamContext<TFolderId, TFileId>> adamState, IContextResolver ctxResolver) : base(adamState, ctxResolver, "Adm.TrnFld") { }
+        public AdamTransFolder(MyServices services) : base(services, "Adm.TrnFld") { }
 
         public IList<AdamItemDto> Folder(string parentSubfolder, string newFolder)
         {
-            var logCall = Log.Call<IList<AdamItemDto>>($"get folders for subfld:{parentSubfolder}, new:{newFolder}");
+            var logCall = Log.Fn<IList<AdamItemDto>>($"get folders for subfld:{parentSubfolder}, new:{newFolder}");
             if (AdamContext.Security.UserIsRestricted && !AdamContext.Security.FieldPermissionOk(GrantSets.ReadSomething))
                 return null;
 
@@ -37,7 +35,7 @@ namespace ToSic.Sxc.WebApi.Adam
             // now access the subfolder, creating it if missing (which is what we want
             AdamContext.AdamRoot.Folder(newFolderPath, true);
 
-            return logCall("ok", ItemsInField(parentSubfolder));
+            return logCall.ReturnAsOk(ItemsInField(parentSubfolder));
         }
     }
 }

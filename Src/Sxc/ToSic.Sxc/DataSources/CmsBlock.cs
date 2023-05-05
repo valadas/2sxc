@@ -1,10 +1,14 @@
-﻿using System;
-using System.Collections.Immutable;
-using ToSic.Eav.DataSources;
-using ToSic.Eav.DataSources.Queries;
-using ToSic.Eav.Documentation;
+﻿using System.Collections.Immutable;
+using ToSic.Eav.DataSource;
+using ToSic.Eav.DataSource.VisualQuery;
+using ToSic.Eav.Services;
+using ToSic.Lib.DI;
+using ToSic.Lib.Documentation;
+using ToSic.Lib.Helpers;
+using ToSic.Lib.Services;
 using ToSic.Sxc.Apps;
 using ToSic.Sxc.Blocks;
+using ToSic.Sxc.Context;
 using IEntity = ToSic.Eav.Data.IEntity;
 
 namespace ToSic.Sxc.DataSources
@@ -18,57 +22,95 @@ namespace ToSic.Sxc.DataSources
     /// </summary>
     [PublicApi_Stable_ForUseInYourCode]
     [VisualQuery(
-        GlobalName = "ToSic.Sxc.DataSources.CmsBlock, ToSic.Sxc",
+        NiceName = "CMS Block",
+        UiHint = "Data for this CMS Block (instance/module)",
+        Icon = Icons.RecentActor,
         Type = DataSourceType.Source, 
-        ExpectsDataOfType = "7c2b2bc2-68c6-4bc3-ba18-6e6b5176ba02",
+        NameId = "ToSic.Sxc.DataSources.CmsBlock, ToSic.Sxc",
+        ConfigurationType = "7c2b2bc2-68c6-4bc3-ba18-6e6b5176ba02",
+        In = new []{DataSourceConstants.StreamDefaultName},
         HelpLink = "https://docs.2sxc.org/api/dot-net/ToSic.Sxc.DataSources.CmsBlock.html",
-        PreviousNames = new []{ "ToSic.SexyContent.DataSources.ModuleDataSource, ToSic.SexyContent" })]
+        NameIds = new []{ "ToSic.SexyContent.DataSources.ModuleDataSource, ToSic.SexyContent" })]
     public sealed partial class CmsBlock : DataSourceBase
     {
-        private readonly Lazy<CmsRuntime> _lazyCmsRuntime;
-
-        /// <inheritdoc />
-        public override string LogId => "Sxc.CmsBDs";
-
-        public const string InstanceLookupName = "module";
-        public const string InstanceIdKey = "ModuleId";
-
-        [PrivateApi]
-        public enum Settings
-        {
-            InstanceId
-        }
+        [PrivateApi] internal const string InstanceLookupName = "module";
+        [PrivateApi] internal const string ModuleIdKey = "Id";
+        [PrivateApi] internal const string FieldInstanceId = "InstanceId";
 
         /// <summary>
         /// The instance-id of the CmsBlock (2sxc instance, DNN ModId). <br/>
         /// It's named Instance-Id to be more neutral as we're opening it to other platforms
         /// </summary>
-        public int? InstanceId
+        [Configuration(Field = FieldInstanceId, Fallback = "[" + InstanceLookupName + ":" + ModuleIdKey + "]")]
+        public int? ModuleId
         {
-            get
+            get => _moduleId ?? (int.TryParse(Configuration.GetThis(), out var listId) ? listId : new int?());
+            set => _moduleId = value;
+        }
+        private int? _moduleId;
+
+        #region Constructor
+
+        public new class MyServices: MyServicesBase<DataSourceBase.MyServices>
+        {
+            public LazySvc<CmsRuntime> LazyCmsRuntime { get; }
+            public LazySvc<IModule> ModuleLazy { get; }
+            public LazySvc<IDataSourcesService> DataSourceFactory { get; }
+
+            public MyServices(DataSourceBase.MyServices parentServices,
+                LazySvc<CmsRuntime> lazyCmsRuntime,
+                LazySvc<IModule> moduleLazy,
+                LazySvc<IDataSourcesService> dataSourceFactory) : base(parentServices)
             {
-                Configuration.Parse();
-                var listIdString = Configuration[InstanceIdKey];
-                return int.TryParse(listIdString, out var listId) ? listId : new int?();
+                ConnectServices(
+                    LazyCmsRuntime = lazyCmsRuntime,
+                    ModuleLazy = moduleLazy,
+                    DataSourceFactory = dataSourceFactory
+                );
             }
-            set => Configuration[InstanceIdKey] = value.ToString();
         }
 
-
-        public CmsBlock(Lazy<CmsRuntime> lazyCmsRuntime)
+        public CmsBlock(MyServices services): base(services, $"SDS.CmsBks")
         {
-            _lazyCmsRuntime = lazyCmsRuntime;
-            Provide(GetContent);
-            Provide(ViewParts.ListContent, GetHeader);
-			Configuration.Values.Add(InstanceIdKey, $"[Settings:{Settings.InstanceId}||[{InstanceLookupName}:{InstanceIdKey}]]");
+            _services = services;
+
+            ProvideOut(GetContent);
+            ProvideOut(GetHeader, ViewParts.StreamHeader);
+            ProvideOut(GetHeader, ViewParts.StreamHeaderOld);
+        }
+        private readonly MyServices _services;
+        #endregion
+
+        public override IDataSourceLink Link => _link.Get(() => new DataSourceLink(null, dataSource: this)
+            .AddStream(name: ViewParts.StreamHeader)
+            .AddStream(name: ViewParts.StreamHeaderOld));
+        private readonly GetOnce<IDataSourceLink> _link = new GetOnce<IDataSourceLink>();
+
+
+        private IImmutableList<IEntity> GetContent()
+        {
+            // First check if BlockConfiguration works - to give better error if not
+            var blockSpecsAndErrors = ConfigAndViewOrErrors;
+            if (blockSpecsAndErrors.IsError)
+                return blockSpecsAndErrors.Errors;
+
+            var parts = blockSpecsAndErrors.Result;
+            return GetStream(parts.View, parts.BlockConfiguration.Content, parts.View.ContentItem,
+                parts.BlockConfiguration.Presentation, parts.View.PresentationItem, false);
         }
 
-        private ImmutableArray<IEntity> GetContent()
-            => GetStream(BlockConfiguration.Content, View.ContentItem,
-                BlockConfiguration.Presentation, View.PresentationItem, false);
+        private IImmutableList<IEntity> GetHeader()
+        {
+            // First check if BlockConfiguration works - to give better error if not
+            var blockSpecsAndErrors = ConfigAndViewOrErrors;
+            if (blockSpecsAndErrors.IsError)
+                return blockSpecsAndErrors.Errors;
 
-        private ImmutableArray<IEntity> GetHeader()
-            => GetStream(BlockConfiguration.Header, View.HeaderItem,
-                BlockConfiguration.HeaderPresentation, View.HeaderPresentationItem, true);
+            var parts = blockSpecsAndErrors.Result;
+
+
+            return GetStream(parts.View, parts.BlockConfiguration.Header, parts.View.HeaderItem,
+                parts.BlockConfiguration.HeaderPresentation, parts.View.HeaderPresentationItem, true);
+        }
     }
 }

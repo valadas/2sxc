@@ -1,6 +1,10 @@
 ﻿using System;
 using ToSic.Eav.Data;
-using ToSic.Eav.Documentation;
+using ToSic.Lib.Documentation;
+
+#if !NETFRAMEWORK
+#pragma warning disable CS0109
+#endif
 
 namespace ToSic.Sxc.Search
 {
@@ -8,8 +12,10 @@ namespace ToSic.Sxc.Search
     /// Defines an item in the search system - which is prepared by Sxc, and can be customized as needed
     /// </summary>
     [PublicApi_Stable_ForUseInYourCode]
-    public interface ISearchItem 
+    public interface ISearchItem
+#if NETFRAMEWORK
         : ToSic.SexyContent.Search.ISearchInfo // backward compatibility
+#endif
     {
         new string UniqueKey { get; set; }
 

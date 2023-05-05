@@ -1,8 +1,7 @@
-﻿using System.Collections.Generic;
-using ToSic.Eav.Documentation;
-using ToSic.Eav.Logging;
+﻿using ToSic.Lib.Documentation;
+using ToSic.Lib.Logging;
+using ToSic.Sxc.Blocks.Output;
 using ToSic.Sxc.Engines;
-using ToSic.Sxc.Web;
 
 namespace ToSic.Sxc.Blocks
 {
@@ -10,14 +9,22 @@ namespace ToSic.Sxc.Blocks
     /// This is kind of the master-container for a content-management block. It's the wrapper which is in the CMS (DNN), and the module will talk with this
     /// Sxc Block to get everything rendered. 
     /// </summary>
-    [PrivateApi("not sure yet what to call this, CmsBlock isn't right, because it's more of a BlockHost or something")]
+    [PrivateApi("not sure yet what to call this, or if it should be public")]
     public interface IBlockBuilder: IHasLog
     {
         /// <summary>
-        /// Render this block. Internally will use the engine. 
+        /// 
         /// </summary>
+        /// <param name="topLevel">
+        ///     This means it's the outer-most render which is happening.
+        ///     This changes if things like header changes, features etc. are picked up - which should only happen at top level
+        /// </param>
         /// <returns></returns>
-        string Render();
+        [PrivateApi]
+        IRenderResult Run(bool topLevel, object data = default);
+
+        [PrivateApi]
+        IRenderingHelper RenderingHelper { get; }
 
         /// <summary>
         /// The real block / unit of content which will be rendered. 
@@ -37,10 +44,7 @@ namespace ToSic.Sxc.Blocks
         /// <summary>
         /// Get the engine which will render a block
         /// </summary>
-        /// <param name="renderingPurpose"></param>
         /// <returns></returns>
-        IEngine GetEngine(Purpose renderingPurpose = Purpose.WebView);
-
-        List<ClientAssetInfo> Assets { get; }
+        IEngine GetEngine();
     }
 }

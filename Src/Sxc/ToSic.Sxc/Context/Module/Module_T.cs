@@ -1,7 +1,7 @@
 ﻿using ToSic.Eav.Apps.Run;
-using ToSic.Eav.Data;
-using ToSic.Eav.Documentation;
-using ToSic.Eav.Logging;
+using ToSic.Lib.Data;
+using ToSic.Lib.Documentation;
+using ToSic.Lib.Services;
 
 namespace ToSic.Sxc.Context
 {
@@ -10,30 +10,29 @@ namespace ToSic.Sxc.Context
     /// </summary>
     /// <typeparam name="T"></typeparam>
     [PrivateApi("this is just fyi")]
-    public abstract class Module<T>: HasLog, IModule, IWrapper<T> where T: class
+    public abstract class Module<T>: ServiceBase, IModule, IWrapper<T> where T: class
     {
         #region Constructors and DI
 
-        /// <inheritdoc />
-        public T UnwrappedContents { get; private set; }
+        public T GetContents() => UnwrappedModule;
+        [PrivateApi] protected T UnwrappedModule;
 
         protected Module(string logName) : base(logName) { }
 
-        public IModule Init(T item, ILog parentLog)
+        public IModule Init(T item)
         {
-            Log.LinkTo(parentLog);
-            UnwrappedContents = item;
+            UnwrappedModule = item;
             return this;
         }
 
-        public abstract IModule Init(int id, ILog parentLog);
+        public abstract IModule Init(int id);
         #endregion
 
         /// <inheritdoc />
-        public abstract int Id { get; /*protected set;*/ }
+        public abstract int Id { get; }
 
         /// <inheritdoc />
-        public abstract bool IsPrimary { get; /*protected set;*/ }
+        public abstract bool IsContent { get; }
 
         /// <inheritdoc />
         public abstract IBlockIdentifier BlockIdentifier { get; }

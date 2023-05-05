@@ -2,90 +2,106 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
 using ToSic.Eav.Apps;
 using ToSic.Eav.Apps.Environment;
 using ToSic.Eav.Context;
 using ToSic.Eav.Data;
+using ToSic.Eav.DataSource.Query;
 using ToSic.Eav.ImportExport;
 using ToSic.Eav.ImportExport.Json;
 using ToSic.Eav.ImportExport.Json.V1;
 using ToSic.Eav.ImportExport.Serialization;
 using ToSic.Eav.ImportExport.Validation;
-using ToSic.Eav.Logging;
+using ToSic.Lib.Logging;
 using ToSic.Eav.Persistence.Logging;
-using ToSic.Eav.Plumbing;
 using ToSic.Eav.Run;
+using ToSic.Eav.WebApi.Assets;
 using ToSic.Eav.WebApi.Dto;
-using ToSic.Eav.WebApi.Helpers;
+using ToSic.Eav.WebApi.Plumbing;
 using ToSic.Eav.WebApi.Security;
+using ToSic.Eav.WebApi.Validation;
+using ToSic.Lib.DI;
+using ToSic.Lib.Services;
 using ToSic.Sxc.Apps;
+using ToSic.Sxc.Apps.Paths;
 using ToSic.Sxc.Blocks;
-using ToSic.Sxc.Engines;
-using ToSic.Sxc.WebApi.Assets;
 using ToSic.Sxc.WebApi.ImportExport;
-using ToSic.Sxc.WebApi.Validation;
+using ToSic.Eav.Helpers;
+using ToSic.Eav.Security;
 
 namespace ToSic.Sxc.WebApi.Views
 {
-    public class ViewsExportImport: HasLog<ViewsExportImport>
+    public class ViewsExportImport<THttpResponseType> : ServiceBase
     {
+        private readonly LazySvc<QueryDefinitionBuilder> _qDefBuilder;
         private readonly IServerPaths _serverPaths;
-        private readonly TemplateHelpers _appHelpers;
         private readonly IEnvironmentLogger _envLogger;
-        private readonly Lazy<CmsManager> _cmsManagerLazy;
-        private readonly Lazy<JsonBundleSerializer> _jsonBundleLazy;
+        private readonly LazySvc<CmsManager> _cmsManagerLazy;
+        private readonly LazySvc<JsonSerializer> _jsonSerializerLazy;
+        private readonly IAppStates _appStates;
+        private readonly AppIconHelpers _appIconHelpers;
+        private readonly Generator<ImpExpHelpers> _impExpHelpers;
+        private readonly ResponseMaker<THttpResponseType> _responseMaker;
         private readonly ISite _site;
         private readonly IUser _user;
 
-        public ViewsExportImport(IServerPaths serverPaths, 
-            TemplateHelpers appHelpers, 
+        public ViewsExportImport(IServerPaths serverPaths,
             IEnvironmentLogger envLogger,
-            Lazy<CmsManager> cmsManagerLazy, 
-            Lazy<JsonBundleSerializer> jsonBundleLazy, 
-            IContextOfSite context) : base("Bck.Views")
+            LazySvc<CmsManager> cmsManagerLazy, 
+            LazySvc<JsonSerializer> jsonSerializerLazy, 
+            IContextOfSite context,
+            IAppStates appStates,
+            AppIconHelpers appIconHelpers,
+            Generator<ImpExpHelpers> impExpHelpers,
+            ResponseMaker<THttpResponseType> responseMaker,
+            LazySvc<QueryDefinitionBuilder> qDefBuilder) : base("Bck.Views")
         {
-            _serverPaths = serverPaths;
-            _appHelpers = appHelpers;
-            _envLogger = envLogger;
-            _cmsManagerLazy = cmsManagerLazy;
-            _jsonBundleLazy = jsonBundleLazy;
-
+            ConnectServices(
+                _serverPaths = serverPaths,
+                _envLogger = envLogger,
+                _cmsManagerLazy = cmsManagerLazy,
+                _jsonSerializerLazy = jsonSerializerLazy,
+                _appStates = appStates,
+                _appIconHelpers = appIconHelpers,
+                _impExpHelpers = impExpHelpers,
+                _responseMaker = responseMaker,
+                _qDefBuilder = qDefBuilder
+            );
             _site = context.Site;
             _user = context.User;
         }
 
-        public HttpResponseMessage DownloadViewAsJson(int appId, int viewId)
+        public THttpResponseType DownloadViewAsJson(int appId, int viewId)
         {
-            var logCall = Log.Call($"{appId}, {viewId}");
-            SecurityHelpers.ThrowIfNotAdmin(_user);
-            var app = _cmsManagerLazy.Value.ServiceProvider.Build<ImpExpHelpers>().Init(Log).GetAppAndCheckZoneSwitchPermissions(_site.ZoneId, appId, _user, _site.ZoneId);
-            var cms = _cmsManagerLazy.Value.Init(app, Log);
+            var logCall = Log.Fn<THttpResponseType>($"{appId}, {viewId}");
+            SecurityHelpers.ThrowIfNotAdmin(_user.IsSiteAdmin, Log);
+            var app = _impExpHelpers.New().GetAppAndCheckZoneSwitchPermissions(_site.ZoneId, appId, _user, _site.ZoneId);
+            var cms = _cmsManagerLazy.Value.Init(app);
             var bundle = new BundleEntityWithAssets
             {
                 Entity = app.Data[Eav.ImportExport.Settings.TemplateContentType].One(viewId)
             };
 
             // Attach files
-            var view = new View(bundle.Entity, _site.CurrentCultureCode, Log);
+            var view = new View(bundle.Entity, new[] { _site.CurrentCultureCode }, Log, _qDefBuilder);
 
-            _appHelpers.Init(app, Log);
             if (!string.IsNullOrEmpty(view.Path))
             {
-                TryAddAsset(bundle, _appHelpers.ViewPath(view, PathTypes.PhysRelative), view.Path);
-                var thumb = _appHelpers.IconPathOrNull(view, PathTypes.PhysRelative);
-                if(thumb != null)
-                    TryAddAsset(bundle, thumb, thumb);
+                TryAddAsset(bundle, app.ViewPath(view, PathTypes.PhysRelative), view.Path);
+                var webPath = _appIconHelpers.IconPathOrNull(app, view, PathTypes.PhysRelative)?.ForwardSlash();
+                if(webPath != null)
+                {
+                    var relativePath = webPath.Replace(app.RelativePath.ForwardSlash(), "").TrimPrefixSlash();
+                    TryAddAsset(bundle, webPath, relativePath);
+                }
             }
 
-            var serializer = _jsonBundleLazy.Value;
-            serializer.Init(cms.AppState, Log);
+            var serializer = _jsonSerializerLazy.Value.SetApp(cms.AppState);
             var serialized = serializer.Serialize(bundle, 0);
 
-            logCall("ok");
-            return Download.BuildDownload(serialized,
+            return logCall.ReturnAsOk(_responseMaker.File(serialized,
                 ("View" + "." + bundle.Entity.GetBestTitle() + ImpExpConstants.Extension(ImpExpConstants.Files.json))
-                .RemoveNonFilenameCharacters());
+                .RemoveNonFilenameCharacters()));
         }
 
         private void TryAddAsset(BundleEntityWithAssets bundle, string webPath, string relativePath)
@@ -97,27 +113,25 @@ namespace ToSic.Sxc.WebApi.Views
             bundle.Assets.Add(asset1);
         }
 
-
+        
 
         public ImportResultDto ImportView(int zoneId, int appId, List<FileUploadDto> files, string defaultLanguage)
         {
-            var callLog = Log.Call<ImportResultDto>($"{zoneId}, {appId}, {defaultLanguage}");
+            var callLog = Log.Fn<ImportResultDto>($"{zoneId}, {appId}, {defaultLanguage}");
 
             try
             {
                 // 0.1 Check permissions, get the app, 
-                var app = _cmsManagerLazy.Value.ServiceProvider.Build<ImpExpHelpers>().Init(Log).GetAppAndCheckZoneSwitchPermissions(_site.ZoneId, appId, _user, _site.ZoneId);
-                _appHelpers.Init(app, Log);
+                var app = _impExpHelpers.New().GetAppAndCheckZoneSwitchPermissions(_site.ZoneId, appId, _user, _site.ZoneId);
 
                 // 0.2 Verify it's json etc.
                 if (files.Any(file => !Json.IsValidJson(file.Contents)))
                     throw new ArgumentException("a file is not json");
 
                 // 1. create the views
-                var serializer = _jsonBundleLazy.Value;
-                serializer.Init(State.Get(app), Log);
+                var serializer = _jsonSerializerLazy.Value.SetApp(_appStates.Get(app));
 
-                var bundles = files.Select(f => serializer.Deserialize(f.Contents)).ToList();
+                var bundles = files.Select(f => serializer.DeserializeEntityWithAssets(f.Contents)).ToList();
 
                 if (bundles.Any(t => t == null))
                     throw new NullReferenceException("At least one file returned a null-item, something is wrong");
@@ -129,27 +143,27 @@ namespace ToSic.Sxc.WebApi.Views
 
                 // 2. Import the views
                 // todo: construction of this should go into init
-                _cmsManagerLazy.Value.Init(app.AppId, Log).Entities.Import(bundles.Select(v => v.Entity).ToList());
+                _cmsManagerLazy.Value.Init(app.AppId).Entities.Import(bundles.Select(v => v.Entity).ToList());
 
                 // 3. Import the attachments
                 var assets = bundles.SelectMany(b => b.Assets);
                 var assetMan = new JsonAssets();
-                foreach (var asset in assets) assetMan.Create(GetRealPath(asset), asset);
+                foreach (var asset in assets) assetMan.Create(GetRealPath(app, asset), asset);
 
                 // 3. possibly show messages / issues
-                return callLog("ok", new ImportResultDto(true));
+                return callLog.ReturnAsOk(new ImportResultDto(true));
             }
             catch (Exception ex)
             {
                 _envLogger.LogException(ex);
-                return callLog("error", new ImportResultDto(false, ex.Message, Message.MessageTypes.Error));
+                return callLog.Return(new ImportResultDto(false, ex.Message, Message.MessageTypes.Error), "error");
             }
         }
 
-        private string GetRealPath(JsonAsset asset)
+        private string GetRealPath(Apps.IApp app, JsonAsset asset)
         {
             if (!string.IsNullOrEmpty(asset.Storage) && asset.Storage != JsonAsset.StorageApp) return null;
-            var root = _appHelpers.AppPathRoot(false);
+            var root = app.PhysicalPathSwitch(false);
             return Path.Combine(root, asset.Folder, asset.Name);
         }
     }

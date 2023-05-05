@@ -1,11 +1,13 @@
-﻿using System;
+﻿#if NETFRAMEWORK
+
+using System;
 using System.Collections.Generic;
 using ToSic.Eav.Data;
+using ToSic.Eav.DataSource;
 using ToSic.Eav.DataSources;
-using ToSic.Eav.Documentation;
+using ToSic.Lib.Documentation;
 using ToSic.Eav.LookUp;
 
-#if NET451
 namespace ToSic.Sxc.Compatibility
 {
 	/// <summary>
@@ -48,7 +50,7 @@ namespace ToSic.Sxc.Compatibility
         /// <returns>A typed DataSource object</returns>
         [Obsolete("Please use the CreateSource<T> overload instead.")]
         [PrivateApi]
-        IDataSource CreateSource(string typeName = "", IDataSource inSource = null, ILookUpEngine lookUpEngine = null);
+        IDataSource CreateSource(string typeName = "", IDataSource inSource = null, ILookUpEngine configurationProvider = null);
 
     }
 }

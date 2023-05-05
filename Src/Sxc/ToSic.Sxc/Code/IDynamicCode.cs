@@ -1,16 +1,14 @@
-﻿using System;
-using System.Collections.Generic;
-using ToSic.Eav.DataSources;
-using ToSic.Eav.Documentation;
-using ToSic.Eav.Logging;
+﻿using System.Collections.Generic;
+using ToSic.Eav.DataSource;
 using ToSic.Eav.LookUp;
+using ToSic.Lib.Logging;
 using ToSic.Eav.Run;
+using ToSic.Lib.Documentation;
 using ToSic.Sxc.Apps;
-using ToSic.Sxc.Blocks;
 using ToSic.Sxc.Context;
 using ToSic.Sxc.Data;
 using ToSic.Sxc.DataSources;
-using ToSic.Sxc.Web;
+using ToSic.Sxc.Services;
 using DynamicJacket = ToSic.Sxc.Data.DynamicJacket;
 using IEntity = ToSic.Eav.Data.IEntity;
 using IFolder = ToSic.Sxc.Adam.IFolder;
@@ -24,17 +22,14 @@ namespace ToSic.Sxc.Code
     /// Important for dynamic code files like Razor or WebApi. Note that there are many overloads to ensure that AsDynamic and AsEntity "just work" even if you give them the original data. 
     /// </summary>
     [PublicApi_Stable_ForUseInYourCode]
-#pragma warning disable 618
     public interface IDynamicCode: ICreateInstance, ICompatibilityLevel, IHasLog // inherit from old namespace to ensure compatibility
-#pragma warning restore 618
     {
-        [PrivateApi("WIP")] IBlock Block { get; }
-
         /// <summary>
         /// Get a service from the EAV / 2sxc Dependency Injection. 
         /// </summary>
         /// <typeparam name="TService">Interface (preferred) or Class which is needed</typeparam>
         /// <returns>An object of the type or interface requested</returns>
+        /// <remarks>Added in 2sxc 11.11</remarks>
         TService GetService<TService>();
 
         /// <summary>
@@ -99,9 +94,9 @@ namespace ToSic.Sxc.Code
         /// Link helper object to create the correct links
         /// </summary>
         /// <returns>
-        /// A <see cref="ILinkHelper"/> object.
+        /// A <see cref="ILinkService"/> object.
         /// </returns>
-        ILinkHelper Link { get; }
+        ILinkService Link { get; }
 
         #endregion
 
@@ -112,9 +107,9 @@ namespace ToSic.Sxc.Code
         /// Use it to check if edit is enabled, generate context-json infos and provide toolbar buttons
         /// </summary>
         /// <returns>
-        /// An <see cref="IInPageEditingSystem"/> object.
+        /// An <see cref="IEditService"/> object.
         /// </returns>
-        IInPageEditingSystem Edit { get; }
+        IEditService Edit { get; }
         #endregion
 
         #region AsDynamic for Strings
@@ -122,9 +117,7 @@ namespace ToSic.Sxc.Code
         /// <summary>
         /// Take a json and provide it as a dynamic object to the code
         /// </summary>
-        /// <remarks>
-        /// New in 2sxc 10.20
-        /// </remarks>
+        /// <remarks>Added in 2sxc 10.22.00</remarks>
         /// <param name="json">the original json string</param>
         /// <param name="fallback">
         /// Alternate string to use, if the original json can't parse.
@@ -133,7 +126,6 @@ namespace ToSic.Sxc.Code
         /// If it can't be parsed, it will parse the fallback, which by default is an empty empty dynamic object.
         /// If you provide null for the fallback, then you will get null back.
         /// </returns>
-        /// <remarks>Added in 2sxc 10.22.00</remarks>
         dynamic AsDynamic(string json, string fallback = DynamicJacket.EmptyJson);
 
         #endregion 
@@ -153,8 +145,9 @@ namespace ToSic.Sxc.Code
         /// </summary>
         /// <param name="dynamicEntity">the original object</param>
         /// <returns>a dynamic object for easier coding</returns>
-        dynamic AsDynamic(dynamic dynamicEntity);
+        dynamic AsDynamic(object dynamicEntity);
 
+        
         #endregion
 
         #region AsEntity
@@ -164,11 +157,11 @@ namespace ToSic.Sxc.Code
         /// </summary>
         /// <param name="dynamicEntity">the wrapped IEntity</param>
         /// <returns>A normal IEntity</returns>
-        IEntity AsEntity(dynamic dynamicEntity);
+        IEntity AsEntity(object dynamicEntity);
 
         #endregion
 
-        #region AsList 
+        #region AsList
 
         /// <summary>
         /// Converts a list of <see cref="IEntity"/> objects into a list of <see cref="IDynamicEntity"/> objects. 
@@ -177,18 +170,19 @@ namespace ToSic.Sxc.Code
         /// Can also be a <see cref="IDataSource"/> in which case it uses the default stream. </param>
         /// <remarks>Added in 2sxc 10.21.00</remarks>
         /// <returns>a list of <see cref="IDynamicEntity"/> objects</returns>
-        IEnumerable<dynamic> AsList(dynamic list);
+        IEnumerable<dynamic> AsList(object list);
 
         #endregion
+
 
         #region Create Data Sources
         /// <summary>
         /// Create a <see cref="IDataSource"/> which will process data from the given stream.
         /// </summary>
-        /// <param name="inStream">The stream which will be the default In of the new data-source.</param>
+        /// <param name="source">The stream which will be the default In of the new data-source.</param>
         /// <typeparam name="T">A data-source type - must be inherited from IDataSource</typeparam>
         /// <returns>A typed DataSource object</returns>
-        T CreateSource<T>(IDataStream inStream) where T: IDataSource;
+        T CreateSource<T>(IDataStream source) where T: IDataSource;
 
 
         /// <summary>
@@ -198,14 +192,22 @@ namespace ToSic.Sxc.Code
         /// <param name="configurationProvider">An alternate configuration provider for the DataSource</param>
         /// <typeparam name="T">A data-source type - must be inherited from IDataSource</typeparam>
         /// <returns>A typed DataSource object</returns>
-        T CreateSource<T>(IDataSource inSource = null, ILookUpEngine configurationProvider = null) where T : IDataSource;
+        T CreateSource<T>(IDataSource inSource = null, ILookUpEngine configurationProvider = default) where T : IDataSource;
         #endregion
 
-        #region WIP Context
 
-        [PrivateApi("still WIP")]
+        #region Context
+
+        /// <summary>
+        /// The CmsContext tells you about the environment, like what page and module we're running in.
+        /// It's supposed to replace the Dnn object in Razor and WebAPI code.
+        /// </summary>
+        /// <remarks>
+        /// New in v11.11
+        /// </remarks>
         ICmsContext CmsContext { get; }
 
         #endregion
+        
     }
 }

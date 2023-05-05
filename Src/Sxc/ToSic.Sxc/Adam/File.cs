@@ -1,6 +1,12 @@
 ﻿using System;
-using ToSic.Eav.Data;
+using System.Linq;
+using System.Text.Json.Serialization;
+using ToSic.Eav.Metadata;
 using ToSic.SexyContent.Adam;
+using ToSic.Sxc.Data;
+using ToSic.Sxc.Images;
+
+// ReSharper disable ConvertToNullCoalescingCompoundAssignment
 
 namespace ToSic.Sxc.Adam
 {
@@ -10,26 +16,32 @@ namespace ToSic.Sxc.Adam
 #pragma warning restore 618
         IFile
     {
+        public File(AdamManager adamManager) => AdamManager = adamManager;
         private AdamManager AdamManager { get; }
-
-        public File(AdamManager adamManager)
-        {
-            AdamManager = adamManager;
-        }
 
         #region Metadata
 
         /// <inheritdoc />
-        public dynamic Metadata => AdamManager.MetadataMaker.GetFirstOrFake(AdamManager, MetadataId);
+        [JsonIgnore]
+        public IDynamicMetadata Metadata => _metadata 
+            ?? (_metadata = AdamManager.MetadataMaker.GetMetadata(AdamManager, CmsMetadata.FilePrefix + SysId, FileName, AttachMdRecommendations));
+        private IDynamicMetadata _metadata;
 
-        public bool HasMetadata => AdamManager.MetadataMaker.GetFirstMetadata(AdamManager.AppRuntime, MetadataId) != null;
-
-        public MetadataFor MetadataId => _metadataKey ?? (_metadataKey = new MetadataFor
+        /// <summary>
+        /// Attach metadata recommendations
+        /// </summary>
+        /// <param name="mdOf"></param>
+        private void AttachMdRecommendations(IMetadataOf mdOf)
         {
-            TargetType = Eav.Constants.MetadataForCmsObject,
-            KeyString = "file:" + SysId
-        });
-        private MetadataFor _metadataKey;
+            if (mdOf?.Target == null) return;
+            if (Type == Classification.Image)
+                mdOf.Target.Recommendations = new[] { ImageDecorator.TypeNameId };
+        }
+
+        /// <inheritdoc />
+        [JsonIgnore]
+        public bool HasMetadata => (Metadata as IHasMetadata)?.Metadata.Any() ?? false;
+
         #endregion
 
         public string Url { get; set; }
@@ -44,5 +56,9 @@ namespace ToSic.Sxc.Adam
 
         public int FileId => SysId as int? ?? 0;
 
+        IMetadataOf IHasMetadata.Metadata
+            => _metadataOf ?? (_metadataOf = AdamManager.AppContext.AppState.GetMetadataOf(TargetTypes.CmsItem,
+                CmsMetadata.FilePrefix + SysId, FileName));
+        private IMetadataOf _metadataOf;
     }
 }

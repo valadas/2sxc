@@ -1,36 +1,46 @@
 ﻿using System;
 using ToSic.Eav.Apps;
-using ToSic.Eav.Logging;
-using ToSic.Sxc.Context;
+using ToSic.Eav.Context;
+using ToSic.Lib.DI;
+using ToSic.Lib.Logging;
 
 namespace ToSic.Sxc.Adam
 {
     /// <inheritdoc />
     public class AdamContext<TFolderId, TFileId>: AdamContext
     {
+        private readonly Generator<AdamStorageOfSite<TFolderId, TFileId>> _siteStoreGenerator;
+        private readonly Generator<AdamStorageOfField<TFolderId, TFileId>> _fieldStoreGenerator;
         internal AdamManager<TFolderId, TFileId> AdamManager => _adamManagerLazy.Value;
-        private readonly Lazy<AdamManager<TFolderId, TFileId>> _adamManagerLazy;
+        private readonly LazySvc<AdamManager<TFolderId, TFileId>> _adamManagerLazy;
 
-        public AdamContext(Lazy<AdamManager<TFolderId, TFileId>> adamManagerLazy, IServiceProvider serviceProvider): base(serviceProvider, "Adm.CtxTT")
+        public AdamContext(
+            LazySvc<AdamManager<TFolderId, TFileId>> adamManagerLazy,
+            Generator<AdamStorageOfSite<TFolderId, TFileId>> siteStoreGenerator,
+            Generator<AdamStorageOfField<TFolderId, TFileId>> fieldStoreGenerator,
+            MyServices services): base(services, "Adm.CtxTT")
         {
-            _adamManagerLazy = adamManagerLazy;
+            ConnectServices(
+                _adamManagerLazy = adamManagerLazy,
+                _siteStoreGenerator = siteStoreGenerator,
+                _fieldStoreGenerator = fieldStoreGenerator
+            );
         }
 
         internal AdamStorage<TFolderId, TFileId> AdamRoot;
 
-        public override AdamContext Init(IContextOfApp context, string contentType, string fieldName, Guid entityGuid, bool usePortalRoot, ILog parentLog)
+        public override AdamContext Init(IContextOfApp context, string contentType, string fieldName, Guid entityGuid, bool usePortalRoot)
         {
-            Log.LinkTo(parentLog);
-            var logCall = Log.Call<AdamContext>($"..., usePortalRoot: {usePortalRoot}");
-            AdamManager.Init(context, 10, Log);
+            var logCall = Log.Fn<AdamContext>($"..., usePortalRoot: {usePortalRoot}");
+            AdamManager.Init(context, Constants.CompatibilityLevel10);
             AdamRoot = usePortalRoot
-                ? new AdamStorageOfSite<TFolderId, TFileId>(AdamManager) as AdamStorage<TFolderId, TFileId>
-                : new AdamStorageOfField<TFolderId, TFileId>(AdamManager, entityGuid, fieldName);
-            AdamRoot.Init(Log);
+                ? _siteStoreGenerator.New() as AdamStorage<TFolderId, TFileId>
+                : _fieldStoreGenerator.New().InitItemAndField(entityGuid, fieldName);
+            AdamRoot.Init(AdamManager);
 
-            base.Init(context, contentType, fieldName, entityGuid, usePortalRoot, parentLog);
+            base.Init(context, contentType, fieldName, entityGuid, usePortalRoot);
             
-            return logCall(null, this);
+            return logCall.Return(this);
         }
 
 

@@ -1,93 +1,84 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using DotNetNuke.Web.Api;
 using System.Linq;
 using System.Net.Http;
-using DotNetNuke.Common.Utilities;
-using DotNetNuke.Web.Api;
-using ToSic.Eav.Logging;
-using ToSic.Eav.Plumbing;
+using ToSic.Lib.DI;
+using ToSic.Lib.Logging;
+using ToSic.Lib.Services;
 using ToSic.Sxc.Blocks;
-using ToSic.Sxc.Context;
-using ToSic.Sxc.Dnn.Run;
 using ToSic.Sxc.WebApi;
 
 namespace ToSic.Sxc.Dnn.WebApi
 {
-    internal class DnnGetBlock
+    public class DnnGetBlock: ServiceBase
     {
-        private readonly IServiceProvider _serviceProvider;
+ 
+        private readonly Generator<BlockFromEntity> _blockFromEntity;
+        private readonly Generator<IModuleAndBlockBuilder> _moduleAndBlockBuilder;
 
-        public DnnGetBlock(IServiceProvider serviceProvider)
+        public DnnGetBlock(Generator<BlockFromEntity> blockFromEntity, Generator<IModuleAndBlockBuilder> moduleAndBlockBuilder): base($"{DnnConstants.LogName}GetBlk")
         {
-            _serviceProvider = serviceProvider;
+            ConnectServices(
+                _blockFromEntity = blockFromEntity,
+                _moduleAndBlockBuilder = moduleAndBlockBuilder
+            );
         }
 
-        internal IBlock GetCmsBlock(HttpRequestMessage request, ILog log)
+        internal BlockWithContextProvider GetCmsBlock(HttpRequestMessage request) => Log.Func(timer: true, func: () =>
         {
-            var wrapLog = log.Call<IBlock>(useTimer: true);
-
             var moduleInfo = request.FindModuleInfo();
 
             if (moduleInfo == null)
-                return wrapLog("request ModuleInfo not found", null);
-            
-            var context = _serviceProvider.Build<IContextOfBlock>().Init(moduleInfo, log);
-            context.Page.Parameters = GetOverrideParams(request);
-            IBlock block = _serviceProvider.Build<BlockFromModule>().Init(context, log);
+                return (null, "request ModuleInfo not found");
 
+            var blockProvider = _moduleAndBlockBuilder.New().GetProvider(moduleInfo, null);
+
+            var result = new BlockWithContextProvider(blockProvider.ContextOfBlock,
+                () => GetBlockOrInnerContentBlock(request, blockProvider));
+
+            return (result, "ok");
+        });
+
+        private IBlock GetBlockOrInnerContentBlock(HttpRequestMessage request, BlockWithContextProvider blockWithContextProvider)
+        {
+            var block = blockWithContextProvider.LoadBlock();
             // check if we need an inner block
-            if (request.Headers.Contains(WebApiConstants.HeaderContentBlockId)) { 
+            if (request.Headers.Contains(WebApiConstants.HeaderContentBlockId))
+            {
                 var blockHeaderId = request.Headers.GetValues(WebApiConstants.HeaderContentBlockId).FirstOrDefault();
                 int.TryParse(blockHeaderId, out var blockId);
-                if (blockId < 0)   // negative id, so it's an inner block
+                if (blockId < 0) // negative id, so it's an inner block
                 {
-                    log.Add($"Inner Content: {blockId}");
-                    block = _serviceProvider.Build<BlockFromEntity>().Init(block, blockId, log);
+                    Log.A($"Inner Content: {blockId}");
+                    if (request.Headers.Contains("BlockIds"))
+                    {
+                        var blockIds = request.Headers.GetValues("BlockIds").FirstOrDefault()?.Split(',');
+                        block = FindInnerContentParentBlock(block, blockId, blockIds);
+                    }
+
+                    block = _blockFromEntity.New().Init(block, blockId);
                 }
             }
 
-            return wrapLog("ok", block);
+            return block;
         }
 
-        /// <summary>
-        /// get url parameters and provide override values to ensure all configuration is 
-        /// preserved in AJAX calls
-        /// </summary>
-        /// <param name="request"></param>
-        /// <returns></returns>
-        private static List<KeyValuePair<string, string>> GetOverrideParams(HttpRequestMessage request)
+        private IBlock FindInnerContentParentBlock(IBlock parent, int contentBlockId, string[] blockIds)
         {
-            List<KeyValuePair<string, string>> urlParams = null;
-            var requestParams = request.GetQueryNameValuePairs();
-            var origParams = requestParams.Where(p => p.Key == "originalparameters").ToList();
-            if (origParams.Any())
+            if (blockIds != null && blockIds.Length >= 2)
             {
-                var paramSet = origParams.First().Value;
-
-                // Workaround for deserializing KeyValuePair -it requires lowercase properties(case sensitive),
-                // which seems to be a bug in some Newtonsoft.Json versions: http://stackoverflow.com/questions/11266695/json-net-case-insensitive-property-deserialization
-                var items = Json.Deserialize<List<UpperCaseStringKeyValuePair>>(paramSet);
-                urlParams = items.Select(a => new KeyValuePair<string, string>(a.Key, a.Value)).ToList();
+                foreach (var ids in blockIds) // blockIds is ordered list, from first ancestor till last successor 
+                {
+                    var parentIds = ids.Split(':');
+                    //var parentAppId = int.Parse(parentIds[0]);
+                    //var parentContentBlocks = new Guid(parentIds[1]);
+                    var id = int.Parse(parentIds[0]);
+                    if (!int.TryParse(parentIds[1], out var cbid) || id == cbid || cbid >= 0) continue;
+                    if (cbid == contentBlockId) break; // we are done, because block should be parent/ancestor of cbid
+                    parent = _blockFromEntity.New().Init(parent, cbid);
+                }
             }
 
-            return urlParams;
+            return parent;
         }
-
-
-        /// <summary>
-        /// Workaround for deserializing KeyValuePair - it requires lowercase properties (case sensitive), 
-        /// which seems to be a issue in some Newtonsoft.Json versions: http://stackoverflow.com/questions/11266695/json-net-case-insensitive-property-deserialization
-        /// </summary>
-        // ReSharper disable once ClassNeverInstantiated.Local
-        private class UpperCaseStringKeyValuePair
-        {
-            // ReSharper disable UnusedAutoPropertyAccessor.Local
-            public string Key { get; set; }
-            public string Value { get; set; }
-            // ReSharper restore UnusedAutoPropertyAccessor.Local
-        }
-
     }
-
-
 }

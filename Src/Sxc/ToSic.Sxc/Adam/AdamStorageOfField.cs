@@ -1,5 +1,7 @@
 ﻿using System;
+using ToSic.Eav.Apps.Adam;
 using ToSic.Eav.Identity;
+using ToSic.Lib.Logging;
 
 namespace ToSic.Sxc.Adam
 {
@@ -9,26 +11,27 @@ namespace ToSic.Sxc.Adam
     /// </summary>
     public class AdamStorageOfField<TFolderId, TFileId>: AdamStorage<TFolderId, TFileId>
     {
-        private readonly Guid _entityGuid;
-        private readonly string _fieldName;
+        private Guid _entityGuid;
+        private string _fieldName;
 
-        public AdamStorageOfField(AdamManager<TFolderId, TFileId> manager, Guid eGuid, string fName) : base(manager)
+        public AdamStorageOfField<TFolderId, TFileId> InitItemAndField(Guid entityGuid, string fieldName)
         {
-            _entityGuid = eGuid;
-            _fieldName = fName;
+            _entityGuid = entityGuid;
+            _fieldName = fieldName;
+            return this;
         }
 
 
         protected override string GeneratePath(string subFolder)
         {
-            var callLog = Log.Call<string>(subFolder);
-            var result = Configuration.ItemFolderMask
+            var callLog = Log.Fn<string>(subFolder);
+            var result = AdamConstants.ItemFolderMask
                 .Replace("[AdamRoot]", Manager.Path)
                 .Replace("[Guid22]", Mapper.GuidCompress(_entityGuid))
                 .Replace("[FieldName]", _fieldName)
                 .Replace("[SubFolder]", subFolder) // often blank, so it will just be removed
                 .Replace("//", "/");
-            return callLog(result, result);
+            return callLog.ReturnAndLog(result);
         }
     }
 }

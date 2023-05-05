@@ -1,5 +1,5 @@
 ﻿using ToSic.Eav.Data;
-using ToSic.Sxc.WebApi.SharedDto;
+using ToSic.Eav.WebApi.Dto;
 
 namespace ToSic.Sxc.WebApi.Usage.Dto
 {
@@ -10,9 +10,9 @@ namespace ToSic.Sxc.WebApi.Usage.Dto
 
         public ContentTypeDto(IContentType type)
         {
-            Id = type.ContentTypeId;
+            Id = type.Id;
             Name = type.Name;
-            StaticName = type.StaticName;
+            StaticName = type.NameId;
         }
     }
 }

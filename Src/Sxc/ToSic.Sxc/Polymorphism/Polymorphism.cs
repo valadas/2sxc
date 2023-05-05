@@ -1,24 +1,35 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using ToSic.Eav.Data;
-using ToSic.Eav.Logging;
+using ToSic.Lib.Logging;
+using ToSic.Eav.Plumbing;
+using ToSic.Lib.Services;
 
 namespace ToSic.Sxc.Polymorphism
 {
-    public class Polymorphism: HasLog
+    public class Polymorphism: ServiceBase
     {
+        private readonly IServiceProvider _serviceProvider;
         public string Resolver;
         public string Parameters;
         public string Rule;
         public IEntity Entity;
-        public Polymorphism(IEnumerable<IEntity> list, ILog parentLog) : base("Plm.Managr", parentLog)
+       
+        public Polymorphism(IServiceProvider serviceProvider) : base("Plm.Managr")
+        {
+            _serviceProvider = serviceProvider;
+        }
+
+        public Polymorphism Init(IEnumerable<IEntity> list)
         {
             Entity = list?.FirstOrDefaultOfType(PolymorphismConstants.Name);
-            if (Entity == null) return;
+            if (Entity == null) return this;
 
             var rule = Entity.Value<string>(PolymorphismConstants.ModeField);
 
             SplitRule(rule);
+            return this;
         }
 
         /// <summary>
@@ -34,36 +45,32 @@ namespace ToSic.Sxc.Polymorphism
             if (parts.Length > 0) Parameters = parts[1];
         }
 
-        public string Edition()
+        public string Edition() => Log.Func(() =>
         {
-            var wrapLog = Log.Call<string>();
             try
             {
-                if (string.IsNullOrEmpty(Resolver)) return wrapLog("no resolver", null);
+                if (string.IsNullOrEmpty(Resolver)) return (null, "no resolver");
 
-                if (!Resolvers.TryGetValue(Resolver, out var edResolver))
-                    return wrapLog("resolver not found", null);
-                Log.Add($"resolver for {Resolver} found");
-                var result = edResolver.Edition(Parameters, Log);
+                var rInfo = Cache.FirstOrDefault(r =>
+                    r.Name.Equals(Resolver, StringComparison.InvariantCultureIgnoreCase));
+                if (rInfo == null)
+                    return (null, "resolver not found");
+                Log.A($"resolver for {Resolver} found");
+                var editionResolver = (IResolver)_serviceProvider.GetService(rInfo.Type);
+                var result = editionResolver.Edition(Parameters, Log);
 
-                return wrapLog(null, result);
+                return (result, "ok");
             }
             // We don't expect errors - but such a simple helper just shouldn't be able to throw errors
             catch
             {
-                return wrapLog("error", null);
+                return (null, "error");
             }
-        }
+        });
 
-        /// <summary>
-        /// The global list of resolvers, used in checking what edition to return
-        /// </summary>
-        public static Dictionary<string, IResolver> Resolvers = new Dictionary<string, IResolver>(StringComparer.InvariantCultureIgnoreCase);
-
-        /// <summary>
-        /// Register a resolver
-        /// </summary>
-        /// <param name="resolver"></param>
-        public static void Add(IResolver resolver) => Resolvers.Add(resolver.Name, resolver);
+        private static List<ResolverInfo> Cache { get; } = AssemblyHandling
+            .FindInherited(typeof(IResolver))
+            .Select(t => new ResolverInfo(t))
+            .ToList();
     }
 }

@@ -1,10 +1,13 @@
 ﻿using System.Collections.Generic;
+using ToSic.Eav.DataSource;
 using ToSic.Eav.DataSources;
 using ToSic.Eav.LookUp;
+using ToSic.Lib.Documentation;
 using ToSic.Sxc.Adam;
 using ToSic.Sxc.Data;
 using DynamicJacket = ToSic.Sxc.Data.DynamicJacket;
 using IEntity = ToSic.Eav.Data.IEntity;
+using static ToSic.Eav.Parameters;
 
 namespace ToSic.Sxc.Code
 {
@@ -15,48 +18,52 @@ namespace ToSic.Sxc.Code
         #region AsDynamic and AsEntity
 
         /// <inheritdoc />
-        public dynamic AsDynamic(string json, string fallback = DynamicJacket.EmptyJson) => UnwrappedContents?.AsDynamic(json, fallback);
+        public dynamic AsDynamic(string json, string fallback = DynamicJacket.EmptyJson) => _DynCodeRoot?.AsDynamic(json, fallback);
 
         /// <inheritdoc />
-        public dynamic AsDynamic(IEntity entity) => UnwrappedContents?.AsDynamic(entity);
+        public dynamic AsDynamic(IEntity entity) => _DynCodeRoot?.AsDynamic(entity);
 
         /// <inheritdoc />
-        public dynamic AsDynamic(dynamic dynamicEntity) => UnwrappedContents?.AsDynamic(dynamicEntity);
+        public dynamic AsDynamic(object dynamicEntity) => _DynCodeRoot?.AsDynamic(dynamicEntity);
 
         /// <inheritdoc />
-        public IEntity AsEntity(dynamic dynamicEntity) => UnwrappedContents?.AsEntity(dynamicEntity);
+        public dynamic AsDynamic(params object[] entities) => _DynCodeRoot?.AsDynamic(entities);
+
+        /// <inheritdoc />
+        public IEntity AsEntity(object dynamicEntity) => _DynCodeRoot?.AsEntity(dynamicEntity);
 
         #endregion
 
         #region AsList
 
         /// <inheritdoc />
-        public IEnumerable<dynamic> AsList(dynamic list)
-            => UnwrappedContents?.AsList(list);
+        public IEnumerable<dynamic> AsList(object list)
+            => _DynCodeRoot?.AsList(list);
 
 
         #endregion
 
+
         #region CreateSource
         /// <inheritdoc />
-        public T CreateSource<T>(IDataStream inStream) where T : IDataSource
-            => UnwrappedContents.CreateSource<T>(inStream);
+        public T CreateSource<T>(IDataStream source) where T : IDataSource
+            => _DynCodeRoot.CreateSource<T>(source);
 
         /// <inheritdoc />
-        public T CreateSource<T>(IDataSource inSource = null, ILookUpEngine configurationProvider = null)
-            where T : IDataSource
-            => UnwrappedContents.CreateSource<T>(inSource, configurationProvider);
+        public T CreateSource<T>(IDataSource inSource = null, ILookUpEngine configurationProvider = default) where T : IDataSource
+            => _DynCodeRoot.CreateSource<T>(inSource, configurationProvider);
+
 
         #endregion
 
         #region AsAdam
         /// <inheritdoc />
         public IFolder AsAdam(IDynamicEntity entity, string fieldName)
-            => UnwrappedContents?.AsAdam(entity, fieldName);
+            => _DynCodeRoot?.AsAdam(entity, fieldName);
 
         /// <inheritdoc />
         public IFolder AsAdam(IEntity entity, string fieldName)
-            => UnwrappedContents?.AsAdam(entity, fieldName);
+            => _DynCodeRoot?.AsAdam(entity, fieldName);
         #endregion
     }
 }

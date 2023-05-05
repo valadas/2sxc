@@ -1,9 +1,13 @@
-﻿using System;
+﻿#if NETFRAMEWORK
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using ToSic.Eav.Data;
+using ToSic.Eav.DataSource;
+using ToSic.Eav.DataSource.Catalog;
 using ToSic.Eav.DataSources;
-using ToSic.Eav.Documentation;
+using ToSic.Lib.Documentation;
+using ToSic.Lib.Logging;
 using ToSic.Eav.LookUp;
 using ToSic.SexyContent;
 using ToSic.Sxc.Data;
@@ -13,50 +17,50 @@ namespace ToSic.Sxc.Code
     [PrivateApi]
     public class DynamicCodeObsolete
     {
-        public DynamicCodeRoot DynCode;
-        public DynamicCodeObsolete(DynamicCodeRoot dynCode)
+        private readonly IDynamicCodeRoot _root;
+        public DynamicCodeObsolete(IDynamicCodeRoot dynCode)
         {
-            DynCode = dynCode;
+            _root = dynCode;
         }
-
-        //[PrivateApi]
-        //[Obsolete("for compatibility only, avoid using this and cast your entities to ToSic.Eav.Data.IEntity")]
-        //public dynamic AsDynamic(Eav.Interfaces.IEntity entity) => DynCode.AsDynamic(entity as IEntity);
-
-
-        //[PrivateApi]
-        //[Obsolete("for compatibility only, avoid using this and cast your entities to ToSic.Eav.Data.IEntity")]
-        //public dynamic AsDynamic(KeyValuePair<int, Eav.Interfaces.IEntity> entityKeyValuePair) => DynCode.AsDynamic(entityKeyValuePair.Value);
-
-        //[PrivateApi]
-        //[Obsolete("for compatibility only, avoid using this and cast your entities to ToSic.Eav.Data.IEntity")]
-        //public IEnumerable<dynamic> AsDynamic(IEnumerable<Eav.Interfaces.IEntity> entities) => entities.Select(e => AsDynamic(e));
-
-        ///// <inheritdoc />
-        //public IEnumerable<dynamic> AsDynamic(IEnumerable<IEntity> entities) => entities.Select(e => AsDynamic(e));
 
 
         [PrivateApi("obsolete")]
-        [Obsolete("you should use the CreateSource<T> instead")]
-        public IDataSource CreateSource(string typeName = "", IDataSource inSource = null, ILookUpEngine lookUpEngine = null)
+        [Obsolete("you should use the CreateSource<T> instead. Deprecated ca. v4 (but not sure), changed to error in v15.")]
+        public IDataSource CreateSource(string typeName = "", IDataSource links = null, ILookUpEngine configuration = null)
         {
-            if (lookUpEngine == null)
-                lookUpEngine = DynCode.ConfigurationProvider;
+            // 2023-03-12 2dm
+            // Completely rewrote this, because I got rid of some old APIs in v15 on the DataFactory
+            // This has never been tested but probably works, but we won't invest time to be certain.
 
-            if (inSource != null)
-                return DynCode.DataSourceFactory.GetDataSource(typeName, inSource, inSource, lookUpEngine);
+            var dataSources = ((DynamicCodeRoot)_root).DataSources;
 
-            var userMayEdit = DynCode.Block?.Context?.UserMayEdit ?? false;
+            try
+            {
+                // try to find with assembly name, or otherwise with GlobalName / previous names
+                //var catalog = _root.GetService<DataSourceCatalog>();
+                var type = dataSources.Catalog.Value.FindDataSourceInfo(typeName, _root.App.AppId)?.Type;
+                configuration = configuration ?? dataSources.LookUpEngine; // _root.ConfigurationProvider;
+                var cnf2Wip = new DataSourceOptions(lookUp: configuration);
+                if (links != null)
+                    return dataSources.DataSources.Value/*_root.DataSourceFactory*/.Create(type: type, attach: links, options: cnf2Wip);
 
-            var initialSource = DynCode.DataSourceFactory.GetPublishing(
-                DynCode.App, userMayEdit, DynCode.ConfigurationProvider as LookUpEngine);
-            return typeName != "" ? DynCode.DataSourceFactory.GetDataSource(typeName, initialSource, initialSource, lookUpEngine) : initialSource;
+                var initialSource = dataSources.DataSources.Value/* _root.DataSourceFactory*/
+                    .CreateDefault(new DataSourceOptions(appIdentity: _root.App, lookUp: dataSources.LookUpEngine/*_root.ConfigurationProvider*/));
+                return typeName != ""
+                    ? dataSources.DataSources.Value/*_root.DataSourceFactory*/.Create(type: type, attach: initialSource, options: cnf2Wip)
+                    : initialSource;
+            }
+            catch (Exception ex)
+            {
+                var errMessage = $"The razor code is calling a very old method {nameof(CreateSource)}." +
+                                 $" In this version, you used the type name as a string {nameof(CreateSource)}(string typeName, ...)." +
+                                 $" This has been deprecated since ca. v4 and has been removed now. " +
+                                 $" Please use the newer {nameof(CreateSource)}<Type>(...) overload.";
+
+                throw new Exception(errMessage, ex);
+            }
         }
 
-
-        //[PrivateApi]
-        //[Obsolete("use Header instead")]
-        //public dynamic ListContent => DynCode.Header;
 
 #pragma warning disable 618
         [PrivateApi]
@@ -78,14 +82,13 @@ namespace ToSic.Sxc.Code
         /// </remarks>
         private void TryToBuildElementList()
         {
-            DynCode.Log.Add("try to build old List");
+            _root.Log.A("try to build old List");
             _list = new List<Element>();
 
-            if (DynCode.Data == null || DynCode.Block.View == null) return;
-            if (!DynCode.Data.Out.ContainsKey(Eav.Constants.DefaultStreamName)) return;
+            if (_root.Data == null || _root.Block.View == null) return;
+            if (!_root.Data.Out.ContainsKey(DataSourceConstants.StreamDefaultName)) return;
 
-            var entities = DynCode.Data.Immutable.ToList();
-            //if (entities.Any()) _content = AsDynamic(entities.First());
+            var entities = _root.Data.List.ToList();
 
             _list = entities.Select(GetElementFromEntity).ToList();
 
@@ -94,14 +97,15 @@ namespace ToSic.Sxc.Code
                 var el = new Element
                 {
                     EntityId = e.EntityId,
-                    Content = DynCode.AsDynamic(e)
+                    Content = _root.AsDynamic(e)
                 };
 
-                if (e is EntityInBlock c)
+                var editDecorator = e.GetDecorator<EntityInBlockDecorator>();
+
+                if (editDecorator != null)
                 {
-                    el.GroupId = c.GroupId;
-                    el.Presentation = c.Presentation == null ? null : DynCode.AsDynamic(c.Presentation);
-                    el.SortOrder = c.SortOrder;
+                    el.Presentation = editDecorator.Presentation == null ? null : _root.AsDynamic(editDecorator.Presentation);
+                    el.SortOrder = editDecorator.SortOrder;
                 }
 
                 return el;
@@ -111,3 +115,5 @@ namespace ToSic.Sxc.Code
 
     }
 }
+
+#endif

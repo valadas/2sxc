@@ -1,7 +1,10 @@
 ﻿using System;
 using ToSic.Eav.Apps;
+using ToSic.Eav.Apps.Parts;
 using ToSic.Eav.Data;
-using ToSic.Eav.Logging;
+using ToSic.Lib.DI;
+using ToSic.Lib.Logging;
+using ToSic.Lib.Services;
 using ToSic.Sxc.Apps;
 using ToSic.Sxc.Apps.Blocks;
 
@@ -9,37 +12,51 @@ namespace ToSic.Sxc.Blocks.Edit
 {
     // todo: create interface
     // todo: move some parts out into a BlockManagement
-    public abstract partial class BlockEditorBase : HasLog
+    public abstract partial class BlockEditorBase : ServiceBase<BlockEditorBase.MyServices>
     {
-
         #region DI and Construction
 
-        protected IServiceProvider ServiceProvider { get; }
-        private readonly Lazy<CmsRuntime> _lazyCmsRuntime;
-        private readonly Lazy<CmsManager> _cmsManagerLazy;
-        private CmsManager _cmsManager;
-
-        internal BlockEditorBase(IServiceProvider serviceProvider, Lazy<CmsRuntime> lazyCmsRuntime, Lazy<CmsManager> cmsManagerLazy) : base("CG.RefMan")
+        public class MyServices : MyServicesBase
         {
-            ServiceProvider = serviceProvider;
-            _lazyCmsRuntime = lazyCmsRuntime;
-            _cmsManagerLazy = cmsManagerLazy;
+            public LazySvc<CmsRuntime> CmsRuntime { get; }
+            public LazySvc<CmsManager> CmsManager { get; }
+            public LazySvc<AppManager> AppManager { get; }
+            public Generator<BlockEditorForModule> BlkEdtForMod { get; }
+            public Generator<BlockEditorForEntity> BlkEdtForEnt { get; }
+
+            public MyServices(LazySvc<CmsRuntime> cmsRuntime,
+                LazySvc<CmsManager> cmsManager,
+                LazySvc<AppManager> appManager,
+                Generator<BlockEditorForModule> blkEdtForMod,
+                Generator<BlockEditorForEntity> blkEdtForEnt)
+            {
+                ConnectServices(
+                    CmsRuntime = cmsRuntime,
+                    CmsManager = cmsManager,
+                    AppManager = appManager,
+                    BlkEdtForMod = blkEdtForMod,
+                    BlkEdtForEnt = blkEdtForEnt
+                );
+            }
         }
 
-        internal BlockEditorBase Init(IBlock block)
+        internal BlockEditorBase(MyServices services) : base(services, "CG.RefMan")
         {
-            Log.LinkTo(block.Log);
-            Block = block;
-            return this;
+            Services.CmsRuntime.SetInit(r => r.InitQ(Block?.App/*, true*/));
+            Services.CmsManager.SetInit(r => r.Init(Block?.App));
+            Services.AppManager.SetInit(r => r.Init(Block?.App));
         }
+
+        internal void Init(IBlock block) => Block = block;
 
         #endregion
+
+        private CmsManager CmsManager => Services.CmsManager.Value;
+        private AppManager AppManager => Services.AppManager.Value;
 
         protected IBlock Block;
 
         private BlockConfiguration _cGroup;
-
-
         
         #region methods which are fairly stable / the same across content-block implementations
 
@@ -48,17 +65,13 @@ namespace ToSic.Sxc.Blocks.Edit
         public Guid? SaveTemplateId(int templateId, bool forceCreateContentGroup)
         {
             Guid? result;
-            Log.Add($"save template#{templateId}, CG-exists:{BlockConfiguration.Exists} forceCreateCG:{forceCreateContentGroup}");
+            Log.A($"save template#{templateId}, CG-exists:{BlockConfiguration.Exists} forceCreateCG:{forceCreateContentGroup}");
 
             // if it exists or has a force-create, then write to the Content-Group, otherwise it's just a preview
             if (BlockConfiguration.Exists || forceCreateContentGroup)
             {
                 var existedBeforeSettingTemplate = BlockConfiguration.Exists;
-
-                //var app = Block.App;
-                var cms = _cmsManager = _cmsManagerLazy.Value.Init(Block?.App, Log);
-
-                var contentGroupGuid = cms.Blocks.UpdateOrCreateContentGroup(BlockConfiguration, templateId);
+                var contentGroupGuid = CmsManager.Blocks.UpdateOrCreateContentGroup(BlockConfiguration, templateId);
 
                 if (!existedBeforeSettingTemplate) EnsureLinkToContentGroup(contentGroupGuid);
 
@@ -68,7 +81,7 @@ namespace ToSic.Sxc.Blocks.Edit
             {
                 // only set preview / content-group-reference - but must use the guid
                 var dataSource = Block.App.Data;
-                var templateGuid = dataSource.Immutable.One(templateId).EntityGuid;
+                var templateGuid = dataSource.List.One(templateId).EntityGuid;
                 SavePreviewTemplateId(templateGuid);
                 result = null; // send null back
             }
@@ -76,37 +89,32 @@ namespace ToSic.Sxc.Blocks.Edit
             return result;
         }
 
-        public bool Publish(string part, int sortOrder)
+        public bool Publish(string part, int index)
         {
-            Log.Add($"publish part{part}, order:{sortOrder}");
+            Log.A($"publish part{part}, order:{index}");
             var contentGroup = BlockConfiguration;
-            var contEntity = contentGroup[part][sortOrder];
+            var contEntity = contentGroup[part][index];
             var presKey = part.ToLowerInvariant() == ViewParts.ContentLower 
                 ? ViewParts.PresentationLower 
                 : ViewParts.ListPresentationLower;
-            var presEntity = contentGroup[presKey][sortOrder];
+            var presEntity = contentGroup[presKey][index];
 
             var hasPresentation = presEntity != null;
 
-            var appMan = BlockAppManager();// new AppManager(Block.App, Log);
-
             // make sure we really have the draft item an not the live one
-            var contDraft = contEntity.IsPublished ? contEntity.GetDraft() : contEntity;
-            appMan.Entities.Publish(contDraft.RepositoryId);
-
+            var contDraft = contEntity.IsPublished ? AppManager.AppState.GetDraft(contEntity) : contEntity;
+            AppManager.Entities.Publish(contDraft.RepositoryId);
+            
             if (hasPresentation)
             {
-                var presDraft = presEntity.IsPublished ? presEntity.GetDraft() : presEntity;
-                appMan.Entities.Publish(presDraft.RepositoryId);
+                var presDraft = presEntity.IsPublished ? AppManager.AppState.GetDraft(presEntity) : presEntity;
+                AppManager.Entities.Publish(presDraft.RepositoryId);
             }
 
             return true;
         }
 
-        private AppManager BlockAppManager() =>
-            _appManager ?? (_appManager = _cmsManagerLazy.Value.Init(Block.App, Log));
-        private AppManager _appManager;
-
+        private AppManager BlockAppManager => Services.AppManager.Value;
 
         #endregion
 

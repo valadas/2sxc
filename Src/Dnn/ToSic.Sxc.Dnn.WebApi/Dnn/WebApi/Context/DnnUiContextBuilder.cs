@@ -1,16 +1,13 @@
-﻿using System;
-using System.Web;
-using DotNetNuke.Common;
-using DotNetNuke.Entities.Controllers;
-using DotNetNuke.Entities.Modules;
+﻿using DotNetNuke.Entities.Modules;
 using DotNetNuke.Entities.Portals;
-using ToSic.Eav.Apps;
-using ToSic.Eav.Run;
+using System.Web;
+using ToSic.Eav.WebApi.Context;
 using ToSic.Eav.WebApi.Dto;
 using ToSic.Sxc.Context;
-using ToSic.Sxc.Dnn.Run;
+using ToSic.Sxc.Dnn.Context;
+using ToSic.Sxc.Dnn.Web;
+using ToSic.Sxc.Run;
 using ToSic.Sxc.WebApi.Context;
-using Assembly = System.Reflection.Assembly;
 using IApp = ToSic.Sxc.Apps.IApp;
 
 namespace ToSic.Sxc.Dnn.WebApi.Context
@@ -19,40 +16,34 @@ namespace ToSic.Sxc.Dnn.WebApi.Context
     {
         #region Constructor / DI
 
-        private readonly Lazy<IZoneMapper> _zoneMapper;
         private readonly IContextResolver _ctxResolver;
+        private readonly RemoteRouterLink _remoteRouterLink;
         private readonly PortalSettings _portal = PortalSettings.Current;
 
-        private ModuleInfo Module => (_ctxResolver.BlockOrNull()?.Module as DnnModule)?.UnwrappedContents;
+        private ModuleInfo Module => (_ctxResolver.BlockContextOrNull()?.Module as DnnModule)?.GetContents();
 
-        public DnnUiContextBuilder(Lazy<IZoneMapper> zoneMapper, IContextResolver ctxResolver, Dependencies deps): base(deps)
+        public DnnUiContextBuilder(IContextResolver ctxResolver, RemoteRouterLink remoteRouterLink, MyServices deps) : base(deps)
         {
-            _zoneMapper = zoneMapper;
             _ctxResolver = ctxResolver;
+            _remoteRouterLink = remoteRouterLink;
         }
 
         #endregion
 
-        public override IUiContextBuilder SetZoneAndApp(int zoneId, IAppIdentity app)
+        protected override ContextResourceWithApp GetSystem(Ctx flags)
         {
-            // check if we're providing context for missing app
-            // in this case we must find the zone based on the portals.
-            if (zoneId == 0 && app == null) zoneId = _zoneMapper.Value.Init(null).GetZoneId(_portal.PortalId);
-            return base.SetZoneAndApp(zoneId, app);
+            var result = base.GetSystem(flags);
+            result.Url = VirtualPathUtility.ToAbsolute("~/");
+            return result;
         }
 
-        protected override WebResourceDto GetSystem() =>
-            new WebResourceDto
-            {
-                Url = VirtualPathUtility.ToAbsolute("~/")
-            };
-
-        protected override WebResourceDto GetSite() =>
-            new WebResourceDto
-            {
-                Id = _portal.PortalId,
-                Url = "//" + _portal.PortalAlias.HTTPAlias + "/",
-            };
+        protected override ContextResourceWithApp GetSite(Ctx flags)
+        {
+            var result = base.GetSite(flags);
+            result.Id = _portal.PortalId;
+            result.Url = "//" + _portal.PortalAlias.HTTPAlias + "/";
+            return result;
+        }
 
         protected override WebResourceDto GetPage() =>
             Module == null ? null
@@ -64,17 +55,19 @@ namespace ToSic.Sxc.Dnn.WebApi.Context
                     // but we can't get it from there directly
                 };
 
-        //protected override EnableDto GetEnable()
-        //{
-        //    var isRealApp = App != null && App.AppGuid != Eav.Constants.DefaultAppName;
-        //    var tmp = new JsContextUser(new DnnUser());
-        //    return new EnableDto
-        //    {
-        //        AppPermissions = isRealApp,
-        //        CodeEditor = tmp?.CanDevelop ?? false,
-        //        Query = isRealApp,
-        //    };
-        //}
+        protected override ContextAppDto GetApp(Ctx flags)
+        {
+            var appDto = base.GetApp(flags);
+            // If no app is selected yet, then there is no information to return
+            if (appDto == null) return null;
+
+            try
+            {
+                var roots = DnnJsApi.GetApiRoots();
+                appDto.Api = roots.AppApiRoot;
+            } catch { /* ignore */ }
+            return appDto;
+        }
 
         /// <summary>
         /// build a getting-started url which is used to correctly show the user infos like
@@ -87,27 +80,12 @@ namespace ToSic.Sxc.Dnn.WebApi.Context
         {
             if (!(App is IApp app)) return "";
 
-            var gsUrl =
-                "//gettingstarted.2sxc.org/router.aspx?" +
-                $"DnnVersion={Assembly.GetAssembly(typeof(Globals)).GetName().Version.ToString(4)}" +
-                $"&2SexyContentVersion={Settings.ModuleVersion}" +
-                $"&ModuleName={Module.DesktopModule.ModuleName}" +
-                $"&ModuleId={Module.ModuleID}" +
-                $"&PortalID={_portal.PortalId}" +
-                $"&ZoneID={app.ZoneId}" +
-                $"&DefaultLanguage={_portal.DefaultLanguage}" +
-                $"&CurrentLanguage={_portal.CultureCode}";
-
-            // Add AppStaticName and Version
-            if (Module.DesktopModule.ModuleName != "2sxc")
-            {
-                gsUrl += "&AppGuid=" + app.AppGuid;
-                if (app.Configuration != null)
-                    gsUrl += $"&AppVersion={app.Configuration.Version}&AppOriginalId={app.Configuration.OriginalId}";
-            }
-
-            var hostSettings = HostController.Instance.GetSettingsDictionary();
-            gsUrl += hostSettings.ContainsKey("GUID") ? "&DnnGUID=" + hostSettings["GUID"] : "";
+            var gsUrl = _remoteRouterLink.LinkToRemoteRouter(
+                RemoteDestinations.GettingStarted,
+                Services.SiteCtx.Site,
+                Module.ModuleID,
+                app,
+                Module.DesktopModule.ModuleName == "2sxc");
             return gsUrl;
         }
     }

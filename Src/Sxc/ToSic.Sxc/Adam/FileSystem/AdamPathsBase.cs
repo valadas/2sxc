@@ -1,30 +1,31 @@
 ﻿using System;
 using System.IO;
-using ToSic.Eav;
 using ToSic.Eav.Helpers;
-using ToSic.Eav.Logging;
+using ToSic.Lib.Logging;
 using ToSic.Eav.Run;
+using ToSic.Lib.Services;
 
 namespace ToSic.Sxc.Adam
 {
-    public class AdamPathsBase : HasLog, IAdamPaths
+    public class AdamPathsBase : ServiceBase, IAdamPaths
     {
         #region DI Constructor & Init
 
-        public AdamPathsBase(IServerPaths serverPaths) : this(serverPaths, LogNames.Basic)
+        public AdamPathsBase(IServerPaths serverPaths) : this(serverPaths, LogScopes.Base)
         {
 
         }
 
         protected AdamPathsBase(IServerPaths serverPaths, string logPrefix) : base($"{logPrefix}.AdmPth")
         {
-            _serverPaths = serverPaths;
+            ConnectServices(
+                _serverPaths = serverPaths
+            );
         }
         private readonly IServerPaths _serverPaths;
 
-        public IAdamPaths Init(AdamManager adamManager, ILog parentLog)
+        public IAdamPaths Init(AdamManager adamManager)
         {
-            Log.LinkTo(parentLog);
             AdamManager = adamManager;
             return this;
         }
@@ -54,12 +55,19 @@ namespace ToSic.Sxc.Adam
 
         public string RelativeFromAdam(string path)
         {
-            var adamPosition = path.Forwardslash().IndexOf("adam/", StringComparison.InvariantCultureIgnoreCase);
+            var adamPosition = path.ForwardSlash().IndexOf("adam/", StringComparison.InvariantCultureIgnoreCase);
             return adamPosition <= 0
                 ? path
                 : path.Substring(adamPosition);
         }
 
-        public virtual string Url(string path) => Path.Combine(AdamManager.Site.ContentPath, path).Forwardslash();
+        /// <summary>
+        /// Will receive the path as is on the file system, and return the url form how it would be called from outside.
+        /// This default implementation assumes the path of the server and url are the same.
+        /// In .net core this will be different, so it must replace the internal logic
+        /// </summary>
+        /// <param name="path"></param>
+        /// <returns></returns>
+        public virtual string Url(string path) => Path.Combine(AdamManager.Site.ContentPath, path).ForwardSlash();
     }
 }

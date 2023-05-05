@@ -6,31 +6,28 @@ using ToSic.Eav.Apps.Parts;
 using ToSic.Eav.Apps.Run;
 using ToSic.Eav.Context;
 using ToSic.Eav.Data;
-using ToSic.Eav.Run;
+using ToSic.Eav.DataSource.Query;
+using ToSic.Lib.DI;
+using ToSic.Lib.Logging;
 using ToSic.Sxc.Apps.Blocks;
 using ToSic.Sxc.Blocks;
+// ReSharper disable ConvertToNullCoalescingCompoundAssignment
 
 namespace ToSic.Sxc.Apps
 {
-    public class BlocksRuntime: PartOf<CmsRuntime, BlocksRuntime>
+    public class BlocksRuntime: PartOf<CmsRuntime>
     {
+        private readonly LazySvc<QueryDefinitionBuilder> _qDefBuilder;
         private readonly IZoneCultureResolver _cultureResolver;
         public const string BlockTypeName = "2SexyContent-ContentGroup";
 
-        public BlocksRuntime(IZoneCultureResolver cultureResolver) : base("Sxc.BlkRdr")
+        public BlocksRuntime(IZoneCultureResolver cultureResolver, LazySvc<QueryDefinitionBuilder> qDefBuilder) : base("Sxc.BlkRdr")
         {
-            _cultureResolver = cultureResolver;
+            ConnectServices(
+                _cultureResolver = cultureResolver,
+                _qDefBuilder = qDefBuilder
+            );
         }
-
-        //private IDataSource ContentGroupSource()
-        //{
-        //    if (_contentGroupSource != null) return _contentGroupSource;
-        //    var dataSource = Parent.Data;
-        //    var onlyCGs = Parent.DataSourceFactory.GetDataSource<EntityTypeFilter>(Parent, dataSource);
-        //    onlyCGs.TypeName = BlockTypeName;
-        //    return _contentGroupSource = dataSource;
-        //}
-        //private IDataSource _contentGroupSource;
 
         public List<BlockConfiguration> AllWithView()
         {
@@ -45,41 +42,46 @@ namespace ToSic.Sxc.Apps
                         : null;
                 })
                 .Where(b => b != null)
-                .Select(e => new BlockConfiguration(e.Entity, Parent, _cultureResolver.CurrentCultureCode, Log))
+                .Select(e => new BlockConfiguration(e.Entity, Parent, Parent.Data.List, _qDefBuilder, _cultureResolver.CurrentCultureCode, Log))
                 .ToList();
         }
 
-        public IImmutableList<IEntity> ContentGroups() => _contentGroups ?? (_contentGroups = Parent.Entities.Get(BlockTypeName).ToImmutableArray()); // ContentGroupSource().Immutable;
+        public IImmutableList<IEntity> ContentGroups() => _contentGroups ?? (_contentGroups = Parent.Entities.Get(BlockTypeName).ToImmutableList());
         private IImmutableList<IEntity> _contentGroups;
 
-        public BlockConfiguration GetBlockConfig(Guid contentGroupGuid)
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="contentGroupGuid"></param>
+        /// <returns>Will always return an object, even if the group doesn't exist yet. The .Entity would be null then</returns>
+        public BlockConfiguration GetBlockConfig(Guid contentGroupGuid) => Log.Func($"get CG#{contentGroupGuid}", () =>
         {
-            var wrapLog = Log.Call($"get CG#{contentGroupGuid}");
             var groupEntity = ContentGroups().One(contentGroupGuid);
             var found = groupEntity != null;
-            wrapLog(found ? "found" : "missing");
-            return found
-                ? new BlockConfiguration(groupEntity, Parent, _cultureResolver.CurrentCultureCode, Log).WarnIfMissingData()
-                : new BlockConfiguration(null, Parent, _cultureResolver.CurrentCultureCode, Log)
-                {
-                    PreviewTemplateId = Guid.Empty,
-                    DataIsMissing = true
-                };
-        }
+            return (found
+                    ? new BlockConfiguration(groupEntity, Parent, Parent.Data.List, _qDefBuilder, _cultureResolver.CurrentCultureCode, Log)
+                        .WarnIfMissingData()
+                    : new BlockConfiguration(null, Parent, Parent.Data.List, _qDefBuilder, _cultureResolver.CurrentCultureCode, Log)
+                    {
+                        PreviewTemplateId = Guid.Empty,
+                        DataIsMissing = true
+                    },
+                found ? "found" : "missing");
+        });
         
 
-        internal BlockConfiguration GetOrGeneratePreviewConfig(IBlockIdentifier blockId)
+        internal BlockConfiguration GetOrGeneratePreviewConfig(IBlockIdentifier blockId
+        ) => Log.Func($"get CG or gen preview for grp#{blockId.Guid}, preview#{blockId.PreviewView}", l =>
         {
-            var wrapLog = Log.Call($"get CG or gen preview for grp#{blockId.Guid}, preview#{blockId.PreviewView}");
             // Return a "faked" ContentGroup if it does not exist yet (with the preview templateId)
             var createTempBlockForPreview = blockId.Guid == Guid.Empty;
-            Log.Add($"{nameof(createTempBlockForPreview)}:{createTempBlockForPreview}");
+            l.A($"{nameof(createTempBlockForPreview)}:{createTempBlockForPreview}");
             var result = createTempBlockForPreview
-                ? new BlockConfiguration(null, Parent, _cultureResolver.CurrentCultureCode, Log) {PreviewTemplateId = blockId.PreviewView}
+                ? new BlockConfiguration(null, Parent, Parent.Data.List, _qDefBuilder, _cultureResolver.CurrentCultureCode, Log) { PreviewTemplateId = blockId.PreviewView }
                 : GetBlockConfig(blockId.Guid);
-            wrapLog(null);
+            result.BlockIdentifierOrNull = blockId;
             return result;
-        }
+        });
 
     }
 }

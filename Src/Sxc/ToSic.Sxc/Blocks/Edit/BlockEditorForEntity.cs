@@ -2,16 +2,21 @@
 using System.Collections.Generic;
 using ToSic.Eav.Apps;
 using ToSic.Eav.Data;
+using ToSic.Lib.DI;
 using ToSic.Sxc.Apps;
+using ToSic.Lib.Logging;
 
 namespace ToSic.Sxc.Blocks.Edit
 {
-    internal class BlockEditorForEntity : BlockEditorBase
+    public class BlockEditorForEntity : BlockEditorBase
     {
-        public BlockEditorForEntity(IServiceProvider serviceProvider, Lazy<CmsRuntime> lazyCmsRuntime, Lazy<CmsManager> outerBlockManagerLazy, Lazy<CmsManager> parentBlockManagerLazy) 
-            : base(serviceProvider, lazyCmsRuntime, outerBlockManagerLazy)
+        public BlockEditorForEntity(MyServices services, LazySvc<CmsManager> parentCmsManager, IAppStates appStates) 
+            : base(services)
         {
-            _parentBlockManagerLazy = parentBlockManagerLazy;
+            ConnectServices(
+                _parentCmsManager = parentCmsManager.SetInit(p => p.Init(((BlockBase)Block).Parent.App)),
+                _appStates = appStates
+            );
         }
 
         #region methods which the entity-implementation must customize 
@@ -29,9 +34,8 @@ namespace ToSic.Sxc.Blocks.Edit
             var appName = "";
             if (appId.HasValue)
             {
-                var cache = State.Cache;
-                var zoneAppId = cache.GetIdentity(null, appId);
-                appName = cache.Zones[zoneAppId.ZoneId].Apps[appId.Value];
+                var zoneAppId = _appStates.IdentityOfApp(appId.Value);
+                appName = _appStates.AppIdentifier(zoneAppId.ZoneId, zoneAppId.AppId);
             }
             UpdateValue(BlockFromEntity.CbPropertyApp, appName);
         }
@@ -56,10 +60,9 @@ namespace ToSic.Sxc.Blocks.Edit
         private void Update(Dictionary<string, object> newValues) 
             => ParentBlockAppManager().Entities.UpdateParts(Math.Abs(Block.ContentBlockId), newValues);
 
-        protected AppManager ParentBlockAppManager() =>
-            _appManager ?? (_appManager = _parentBlockManagerLazy.Value.Init(((BlockBase)Block).Parent.App, Log));
-        private AppManager _appManager;
-        private readonly Lazy<CmsManager> _parentBlockManagerLazy;
+        protected AppManager ParentBlockAppManager() => _parentCmsManager.Value;
+        private readonly LazySvc<CmsManager> _parentCmsManager;
+        private readonly IAppStates _appStates;
 
         #endregion
 

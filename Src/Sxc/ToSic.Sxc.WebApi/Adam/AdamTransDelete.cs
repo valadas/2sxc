@@ -1,17 +1,16 @@
-﻿using System;
+﻿using ToSic.Lib.Logging;
 using ToSic.Eav.Security.Permissions;
-using ToSic.Sxc.Adam;
-using ToSic.Sxc.Context;
 
 namespace ToSic.Sxc.WebApi.Adam
 {
     public class AdamTransDelete<TFolderId, TFileId> : AdamTransactionBase<AdamTransDelete<TFolderId, TFileId>, TFolderId, TFileId>
     {
-        public AdamTransDelete(Lazy<AdamContext<TFolderId, TFileId>> adamState, IContextResolver ctxResolver) : base(adamState, ctxResolver, "Adm.TrnDel") { }
+        public AdamTransDelete(MyServices services) 
+            : base(services, "Adm.TrnDel") { }
 
         public bool Delete(string parentSubfolder, bool isFolder, TFolderId id, TFileId fileId)
         {
-            Log.Add($"delete");
+            Log.A($"delete");
             if (!AdamContext.Security.UserIsPermittedOnField(GrantSets.DeleteSomething, out var exp))
                 throw exp;
 
@@ -20,7 +19,7 @@ namespace ToSic.Sxc.WebApi.Adam
                 throw permissionException;
 
             // try to see if we can get into the subfolder - will throw error if missing
-            var parent = AdamContext.AdamRoot.Folder(parentSubfolder, false); // as IFolder<TFolderId, TFileId>;
+            var parent = AdamContext.AdamRoot.Folder(parentSubfolder, false);
 
             var fs = AdamContext.AdamManager.AdamFs;
             if (isFolder)
@@ -36,7 +35,7 @@ namespace ToSic.Sxc.WebApi.Adam
                 fs.Delete(target);
             }
 
-            Log.Add("delete complete");
+            Log.A("delete complete");
             return true;
         }
 

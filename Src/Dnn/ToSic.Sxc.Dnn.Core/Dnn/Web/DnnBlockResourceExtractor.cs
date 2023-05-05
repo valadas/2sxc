@@ -1,0 +1,34 @@
+﻿using DotNetNuke.Web.Client;
+using ToSic.Lib.Helpers;
+using ToSic.Lib.Logging;
+using ToSic.Sxc.Blocks.Output;
+using ToSic.Sxc.Web.ClientAssets;
+using ToSic.Sxc.Web.PageService;
+
+namespace ToSic.Sxc.Dnn.Web
+{
+    public class DnnBlockResourceExtractor: BlockResourceExtractor
+    {
+        public DnnBlockResourceExtractor(PageServiceShared pageServiceShared): base(pageServiceShared) { }
+
+        protected override ClientAssetsExtractSettings Settings => _settings.Get(() => new ClientAssetsExtractSettings(
+            extractAll: false,
+            cssPriority: (int)FileOrder.Css.DefaultPriority,
+            jsPriority: (int)FileOrder.Js.DefaultPriority));
+        private readonly GetOnce<ClientAssetsExtractSettings> _settings = new GetOnce<ClientAssetsExtractSettings>();
+
+
+        protected override (string Template, bool Include2sxcJs) ExtractFromHtml(string html, ClientAssetsExtractSettings settings) => Log.Func(() =>
+        {
+            var include2SxcJs = false;
+            
+            // Handle Client Dependency injection
+            html = ExtractExternalScripts(html, ref include2SxcJs, settings);
+
+            // Handle Scripts
+            html = ExtractStyles(html, settings);
+
+            return ((renderedTemplate: html, include2SxcJs), "ok");
+        });
+    }
+}

@@ -1,8 +1,8 @@
 ﻿using System;
 using ToSic.Eav.Apps;
 using ToSic.Eav.Data;
-using ToSic.Eav.Documentation;
-using ToSic.Eav.Logging;
+using ToSic.Lib.Documentation;
+using ToSic.Lib.Logging;
 // ReSharper disable UnusedMember.Global - we need these, as it's a public API
 
 namespace ToSic.Sxc.Apps
@@ -26,6 +26,7 @@ namespace ToSic.Sxc.Apps
             //FieldHidden = "Hidden",
             FieldRequiredSxcVersion = "RequiredVersion",
             FieldRequiredDnnVersion = "RequiredDnnVersion",
+            FieldRequiredOqtaneVersion = "RequiredOqtaneVersion",
             FieldSupportsAjax = "SupportsAjaxReload";
 
         [PrivateApi]
@@ -33,12 +34,19 @@ namespace ToSic.Sxc.Apps
         {
         }
 
-        public Version Version =>
-            Version.TryParse(Get(FieldVersion, ""), out var version)
-                ? version
-                : new Version();
+        public Version Version
+        {
+            get
+            {
+                var versionValue = Get(FieldVersion, "");
+                var valid = Version.TryParse(versionValue, out var version);
+                return valid
+                    ? version
+                    : new Version();
+            }
+        }
 
-        public string Name => Get(AppConstants.FieldName, "unknown");
+        public string Name => Get(AppConstants.FieldName, Eav.Constants.NullNameId);
 
         public string Description => Get(FieldDescription, "");
 
@@ -63,5 +71,9 @@ namespace ToSic.Sxc.Apps
             Version.TryParse(Get(FieldRequiredDnnVersion, ""), out var version)
                 ? version
                 : new Version();
+        
+        public Version RequiredOqtane => Version.TryParse(Get(FieldRequiredOqtaneVersion, ""), out var version)
+            ? version
+            : new Version();
     }
 }

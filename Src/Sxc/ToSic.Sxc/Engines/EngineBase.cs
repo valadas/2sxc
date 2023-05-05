@@ -1,19 +1,24 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Newtonsoft.Json;
+using System.Text.Json;
+using ToSic.Eav.Apps;
+using ToSic.Eav.Apps.Security;
 using ToSic.Eav.Context;
-using ToSic.Eav.Documentation;
-using ToSic.Eav.Logging;
+using ToSic.Eav.Helpers;
+using ToSic.Eav.Plumbing;
+using ToSic.Lib.Logging;
 using ToSic.Eav.Run;
 using ToSic.Eav.Security.Permissions;
+using ToSic.Eav.Serialization;
+using ToSic.Lib.DI;
+using ToSic.Lib.Documentation;
+using ToSic.Lib.Services;
+using ToSic.Sxc.Apps.Paths;
 using ToSic.Sxc.Blocks;
-using ToSic.Sxc.Context;
-using ToSic.Sxc.Search;
-using ToSic.Sxc.Web;
+using ToSic.Sxc.Blocks.Output;
 using IApp = ToSic.Sxc.Apps.IApp;
-using IDataSource = ToSic.Eav.DataSources.IDataSource;
+using IDataSource = ToSic.Eav.DataSource.IDataSource;
 
 namespace ToSic.Sxc.Engines
 {
@@ -21,49 +26,64 @@ namespace ToSic.Sxc.Engines
     /// The foundation for engines - must be inherited by other engines
     /// </summary>
     [InternalApi_DoNotUse_MayChangeWithoutNotice("this is just fyi")]
-    public abstract class EngineBase : HasLog, IEngine
+    public abstract partial class EngineBase : ServiceBase<EngineBase.MyServices>, IEngine
     {
-        protected readonly EngineBaseDependencies Helpers;
         [PrivateApi] protected IView Template;
         [PrivateApi] protected string TemplatePath;
         [PrivateApi] protected IApp App;
         [PrivateApi] protected IDataSource DataSource;
-        [PrivateApi] protected Purpose Purpose;
+
         [PrivateApi] protected IBlock Block;
 
-        [PrivateApi]
-        public RenderStatusType PreRenderStatus { get; internal set; }
-
-        [PrivateApi] public bool CompatibilityAutoLoadJQueryAndRVT { get; protected set; } = true;
+        [PrivateApi] public bool CompatibilityAutoLoadJQueryAndRvt { get; protected set; } = true;
 
         #region Constructor and DI
 
+        public class MyServices : MyServicesBase
+        {
+
+            public MyServices(IServerPaths serverPaths,
+                IBlockResourceExtractor blockResourceExtractor,
+                LazySvc<AppPermissionCheck> appPermCheckLazy,
+                Polymorphism.Polymorphism polymorphism,
+                LazySvc<IAppStates> appStatesLazy
+            )
+            {
+                ConnectServices(
+                    Polymorphism = polymorphism,
+                    AppStatesLazy = appStatesLazy,
+                    ServerPaths = serverPaths,
+                    BlockResourceExtractor = blockResourceExtractor,
+                    AppPermCheckLazy = appPermCheckLazy
+                );
+            }
+
+            internal readonly IServerPaths ServerPaths;
+            internal readonly IBlockResourceExtractor BlockResourceExtractor;
+            internal readonly LazySvc<AppPermissionCheck> AppPermCheckLazy;
+            internal Polymorphism.Polymorphism Polymorphism { get; }
+            internal LazySvc<IAppStates> AppStatesLazy { get; }
+        }
         /// <summary>
         /// Empty constructor, so it can be used in dependency injection
         /// </summary>
-        protected EngineBase(EngineBaseDependencies helpers) : base("Sxc.EngBas")
-        {
-            Helpers = helpers;
-            helpers.ClientDependencyOptimizer.Init(Log);
-        }
-        
+        protected EngineBase(MyServices services) : base(services, $"{Constants.SxcLogName}.EngBas") { }
+
         #endregion
 
-        
-        /// <inheritdoc />
-        public void Init(IBlock block, Purpose purpose, ILog parentLog)
+        public void Init(IBlock block) => Log.Do(() =>
         {
             Block = block;
             var view = Block.View;
-            Log.LinkTo(parentLog);
 
-            var root = Helpers.TemplateHelpers.Init(Block.App, Log).AppPathRoot(view.IsShared, PathTypes.PhysRelative);
+            var appPathRootInInstallation = Block.App.PathSwitch(view.IsShared, PathTypes.PhysRelative);
             var subPath = view.Path;
-            var templatePath = TryToFindPolymorphPath(root, view, subPath) 
-                               ?? Helpers.LinkPaths.ToAbsolute(root + "/", subPath);
+            var polymorphPathOrNull = PolymorphTryToSwitchPath(appPathRootInInstallation, view, subPath);
+            var templatePath = polymorphPathOrNull ??
+                               Path.Combine(appPathRootInInstallation, subPath).ToAbsolutePathForwardSlash();
 
             // Throw Exception if Template does not exist
-            if (!File.Exists(Helpers.ServerPaths.FullAppPath(templatePath)))
+            if (!File.Exists(Services.ServerPaths.FullAppPath(templatePath)))
                 // todo: change to some kind of "rendering exception"
                 throw new SexyContentException("The template file '" + templatePath + "' does not exist.");
 
@@ -71,7 +91,6 @@ namespace ToSic.Sxc.Engines
             TemplatePath = templatePath;
             App = Block.App;
             DataSource = Block.Data;
-            Purpose = purpose;
 
             // check common errors
             CheckExpectedTemplateErrors();
@@ -81,103 +100,96 @@ namespace ToSic.Sxc.Engines
 
             // Run engine-internal init stuff
             Init();
-        }
+        });
 
-        private string TryToFindPolymorphPath(string root, IView view, string subPath)
+        private string PolymorphTryToSwitchPath(string root, IView view, string subPath) => Log.Func($"{root}, {subPath}", l =>
         {
-            var wrapLog = Log.Call<string>($"{root}, {subPath}");
-            var polymorph = new Polymorphism.Polymorphism(Block.App.Data.List, Log);
-            var edition = polymorph.Edition();
-            if (edition == null) return wrapLog("no edition detected", null);
-            Log.Add($"edition {edition} detected");
+            // Get initial path - here the file is already reliably stored
+            view.EditionPath = subPath.ToAbsolutePathForwardSlash();
+            subPath = view.EditionPath.TrimPrefixSlash();
 
-            var testPath = Helpers.LinkPaths.ToAbsolute($"{root}/{edition}/", subPath);
-            if (File.Exists(Helpers.ServerPaths.FullAppPath(testPath)))
-            {
-                view.Edition = edition;
-                return wrapLog($"edition {edition}", testPath);
-            }
+            // Figure out the current edition - if none, stop here
+            var polymorph = Services.Polymorphism.Init(Block.App.Data.List);
+            // New 2023-03-20 - if the view comes with a preset edition, it's an ajax-preview which should be respected
+            var edition = view.Edition.NullIfNoValue() ?? polymorph.Edition();
+            if (edition == null)
+                return (null, "no edition detected");
+            l.A($"edition '{edition}' detected");
 
-            Log.Add("tried inserting path, will check if sub-path");
-            var firstSlash = subPath.IndexOf('/');
-            if (firstSlash == -1) return wrapLog($"edition {edition} not found", null);
+            // Case #1 where edition is between root and path
+            // eg. subPath = "View.cshtml" and there is a "bs5/View.cshtml"
+            var newPath = PolymorphTestPathAndSetIfFound(view, root, edition, subPath);
+            if (newPath != null)
+                return (newPath, $"found edition {edition}");
 
-            subPath = subPath.Substring(firstSlash + 1);
-            testPath = Helpers.LinkPaths.ToAbsolute($"{root}/{edition}/", subPath);
-            if (File.Exists(Helpers.ServerPaths.FullAppPath(testPath)))
-            {
-                view.Edition = edition;
-                return wrapLog($"edition {edition} up one path", testPath);
-            }
+            // Case #2 where edition _replaces_ an edition in the current path
+            // eg. subPath ="bs5/View.cshtml" and there is a "bs4/View.cshtml"
+            l.A("tried inserting path, will check if sub-path");
+            var pathWithoutFirstFolder = subPath.After("/");
+            if (string.IsNullOrEmpty(pathWithoutFirstFolder))
+                return (null, "view is not in subfolder, so no edition to replace, stopping now");
+            newPath = PolymorphTestPathAndSetIfFound(view, root, edition, pathWithoutFirstFolder);
+            if (newPath != null)
+                return (newPath, $"edition {edition} up one path");
 
-            return wrapLog($"edition {edition} never found", null);
-        }
+            return (null, $"edition {edition} not found");
+        });
+
+        private string PolymorphTestPathAndSetIfFound(IView view, string root, string edition, string subPath
+        ) => Log.Func($"root: {root}; edition: {edition}; subPath: {subPath}", () =>
+        {
+            var fullPathForTest = Path.Combine(root, edition, subPath).ToAbsolutePathForwardSlash();
+            if (!File.Exists(Services.ServerPaths.FullAppPath(fullPathForTest)))
+                return (null, "not found");
+            view.Edition = edition;
+            view.EditionPath = Path.Combine(edition, subPath).ToAbsolutePathForwardSlash();
+            return (fullPathForTest, $"edition {edition}");
+        });
 
         [PrivateApi]
-        protected abstract string RenderTemplate();
+        protected abstract string RenderTemplate(object data);
 
         [PrivateApi]
         protected virtual void Init() {}
 
         /// <inheritdoc />
-        public virtual void CustomizeData() {}
-
-        /// <inheritdoc />
-        public virtual void CustomizeSearch(Dictionary<string, List<ISearchItem>> searchInfos, IModule moduleInfo,
-            DateTime beginDate)
+        public RenderEngineResult Render(object data)
         {
-        }
-
-        /// <inheritdoc />
-        public string Render()
-        {
+            var wrapLog = Log.Fn<RenderEngineResult>(timer: true);
             // call engine internal feature to optionally change what data is actually used or prepared for search...
+#if NETFRAMEWORK
+#pragma warning disable CS0618
             CustomizeData();
-
+#pragma warning restore CS0618
+#endif
             // check if rendering is possible, or throw exceptions...
-            CheckExpectedNoRenderConditions();
+            var (renderStatus, message) = CheckExpectedNoRenderConditions();
 
-            if(PreRenderStatus == RenderStatusType.Unknown)
-                PreRenderStatus = RenderStatusType.Ok;
+            if (renderStatus != RenderStatusType.Ok)
+                return wrapLog.Return(new RenderEngineResult(message, false, null), $"{nameof(renderStatus)} not OK");
 
-
-            if (PreRenderStatus != RenderStatusType.Ok)
-                return AlternateRendering;
-
-            var renderedTemplate = RenderTemplate();
-            var depMan = Helpers.ClientDependencyOptimizer;// Factory.Resolve<IClientDependencyOptimizer>();
+            var renderedTemplate = RenderTemplate(data);
+            var depMan = Services.BlockResourceExtractor;
             var result = depMan.Process(renderedTemplate);
-            ActivateJsApi = result.Item2;
-            return result.Item1;
+            return wrapLog.ReturnAsOk(result);
         }
-
-        [PrivateApi] public bool ActivateJsApi { get; private set; }
-
-        /// <inheritdoc/>
-        [PrivateApi] public List<ClientAssetInfo> Assets => Helpers.ClientDependencyOptimizer.Assets;
-
 
         private void CheckExpectedTemplateErrors()
         {
             if (Template == null)
                 throw new RenderingException("Template Configuration Missing");
 
-            if (Template.ContentType != "" && Eav.Apps.State.Get(App).GetContentType(Template.ContentType) == null)
+            if (Template.ContentType != "" && Services.AppStatesLazy.Value.Get(App).GetContentType(Template.ContentType) == null)
                 throw new RenderingException("The contents of this module cannot be displayed because I couldn't find the assigned content-type.");
         }
 
-        [PrivateApi]
-        internal string AlternateRendering;
-
-        private void CheckExpectedNoRenderConditions()
+        private (RenderStatusType RenderStatus, string Message) CheckExpectedNoRenderConditions()
         {
             if (Template.ContentType != "" && Template.ContentItem == null &&
                 Block.Configuration.Content.All(e => e == null))
-            {
-                PreRenderStatus = RenderStatusType.MissingData;
+                return (RenderStatusType.MissingData, ToolbarForEmptyTemplate);
 
-                AlternateRendering = ToolbarForEmptyTemplate;
-            }
+            return (RenderStatusType.Ok, null);
         }
 
         // todo: refactor - this should go somewhere, I just don't know where :)
@@ -187,7 +199,7 @@ namespace ToSic.Sxc.Engines
             get
             {
                 var toolbar = "<ul class='sc-menu' data-toolbar='" +
-                              JsonConvert.SerializeObject(new {sortOrder = 0, useModuleList = true, action = "edit"}) +
+                              JsonSerializer.Serialize(new {sortOrder = 0, useModuleList = true, action = "edit"}, JsonOptions.SafeJsonForHtmlAttributes) +
                               "'></ul>";
                 var wrapped =
                     "<div class='dnnFormMessage dnnFormInfo'>No demo item exists for the selected template. " +
@@ -200,11 +212,11 @@ namespace ToSic.Sxc.Engines
         {
             // do security check IF security exists
             // should probably happen somewhere else - so it doesn't throw errors when not even rendering...
-            var templatePermissions = Helpers.AppPermCheckLazy.Value
-                .ForItem(Block.Context, App, Template.Entity, Log);
+            var templatePermissions = Services.AppPermCheckLazy.Value
+                .ForItem(Block.Context, App, Template.Entity);
 
             // Views only use permissions to prevent access, so only check if there are any configured permissions
-            if (user.IsAdmin || !templatePermissions.HasPermissions)
+            if (user.IsSiteAdmin || !templatePermissions.HasPermissions)
                 return;
 
             if (!templatePermissions.UserMay(GrantSets.ReadSomething))

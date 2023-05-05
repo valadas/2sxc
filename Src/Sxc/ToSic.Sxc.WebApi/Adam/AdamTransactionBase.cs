@@ -3,44 +3,59 @@ using System.Collections.Generic;
 using JetBrains.Annotations;
 using ToSic.Eav.Apps;
 using ToSic.Eav.Apps.Assets;
-using ToSic.Eav.Logging;
+using ToSic.Lib.Logging;
 using ToSic.Eav.WebApi.Errors;
+using ToSic.Lib.DI;
+using ToSic.Lib.Services;
 using ToSic.Sxc.Adam;
 using ToSic.Sxc.Context;
 
 namespace ToSic.Sxc.WebApi.Adam
 {
-    public abstract partial class AdamTransactionBase<T, TFolderId, TFileId>: HasLog, IAdamTransactionBase where T : AdamTransactionBase<T, TFolderId, TFileId>
+    public abstract partial class AdamTransactionBase<T, TFolderId, TFileId>
+        : ServiceBase<AdamTransactionBase<T, TFolderId, TFileId>.MyServices>, IAdamTransactionBase
+        where T : AdamTransactionBase<T, TFolderId, TFileId>
     {
-        //public const int UseAppIdFromContext = -12456;
 
         #region Constructor / DI
-
-        protected AdamTransactionBase(Lazy<AdamContext<TFolderId, TFileId>> adamState, IContextResolver ctxResolver, string logName) : base(logName)
+        public class MyServices : MyServicesBase
         {
-            _adamState = adamState;
-            _ctxResolver = ctxResolver.Init(Log);
-        }
-        private readonly Lazy<AdamContext<TFolderId, TFileId>> _adamState;
-        private readonly IContextResolver _ctxResolver;
+            public LazySvc<AdamContext<TFolderId, TFileId>> AdamState { get; }
+            public IContextResolver CtxResolver { get; }
+            public Generator<AdamItemDtoMaker<TFolderId, TFileId>> AdamDtoMaker { get; }
 
-        public T Init(int appId, string contentType, Guid itemGuid, string field, bool usePortalRoot, ILog parentLog) 
-            
-        {
-            Log.LinkTo(parentLog);
-            var context = appId > 0 ? _ctxResolver.BlockOrApp(appId) : _ctxResolver.AppNameRouteBlock(null);
-            var logCall = Log.Call<T>($"app: {context.AppState.Show()}, type: {contentType}, itemGuid: {itemGuid}, field: {field}, portalRoot: {usePortalRoot}");
-            AdamContext.Init(context, contentType, field, itemGuid, usePortalRoot, Log);
-            return logCall(null, this as T);
-        }
-
-        void IAdamTransactionBase.Init(int appId, string contentType, Guid itemGuid, string field, bool usePortalRoot, ILog parentLog)
-        {
-            Init(appId, contentType, itemGuid, field, usePortalRoot, parentLog);
+            public MyServices(
+                Generator<AdamItemDtoMaker<TFolderId, TFileId>> adamDtoMaker,
+                LazySvc<AdamContext<TFolderId, TFileId>> adamState,
+                IContextResolver ctxResolver)
+            {
+                ConnectServices(
+                    AdamDtoMaker = adamDtoMaker,
+                    AdamState = adamState,
+                    CtxResolver = ctxResolver
+                );
+            }
         }
 
+        protected AdamTransactionBase(MyServices services, string logName) : base(services, logName)
+        {
+        }
 
-        protected AdamContext<TFolderId, TFileId> AdamContext => _adamState.Value;
+        public T Init(int appId, string contentType, Guid itemGuid, string field, bool usePortalRoot)
+        {
+            var context = appId > 0 ? Services.CtxResolver.GetBlockOrSetApp(appId) : Services.CtxResolver.AppNameRouteBlock(null);
+            var logCall = Log.Fn<T>($"app: {context.AppState.Show()}, type: {contentType}, itemGuid: {itemGuid}, field: {field}, portalRoot: {usePortalRoot}");
+            AdamContext.Init(context, contentType, field, itemGuid, usePortalRoot);
+            return logCall.Return(this as T);
+        }
+
+        void IAdamTransactionBase.Init(int appId, string contentType, Guid itemGuid, string field, bool usePortalRoot)
+        {
+            Init(appId, contentType, itemGuid, field, usePortalRoot);
+        }
+
+
+        protected AdamContext<TFolderId, TFileId> AdamContext => Services.AdamState.Value;
 
         #endregion
 

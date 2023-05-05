@@ -2,8 +2,12 @@
 using System.Collections.Generic;
 using System.Dynamic;
 using System.Linq;
-using Newtonsoft.Json.Linq;
-using ToSic.Eav.Documentation;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+using ToSic.Eav.Data.PropertyLookup;
+using ToSic.Lib.Logging;
+using ToSic.Eav.Plumbing;
+using ToSic.Lib.Documentation;
 
 namespace ToSic.Sxc.Data
 {
@@ -15,11 +19,12 @@ namespace ToSic.Sxc.Data
     /// You will usually do things like `AsDynamic(jsonString).FirstName` etc.
     /// </summary>
     [InternalApi_DoNotUse_MayChangeWithoutNotice("just use the objects from AsDynamic, don't use this directly")]
-    public partial class DynamicJacket: DynamicJacketBase<JObject>
+    [JsonConverter(typeof(DynamicJsonConverter))]
+    public partial class DynamicJacket: DynamicJacketBase<JsonObject>, IPropertyLookup, IHasJsonSource
     {
         /// <inheritdoc />
         [PrivateApi]
-        internal DynamicJacket(JObject originalData) : base(originalData) { }
+        internal DynamicJacket(JsonObject originalData) : base(originalData) { }
 
         /// <inheritdoc />
         public override bool IsList => false;
@@ -29,7 +34,7 @@ namespace ToSic.Sxc.Data
         /// Use the [key] accessor to get the values as <see cref="DynamicJacket"/> or <see cref="DynamicJacketList"/>
         /// </summary>
         /// <returns>the string names of the keys</returns>
-        public override IEnumerator<object> GetEnumerator() => UnwrappedContents.Properties().Select(p => p.Name).GetEnumerator();
+        public override IEnumerator<object> GetEnumerator() => UnwrappedContents.Select(p => p.Key).GetEnumerator();
 
 
         /// <summary>
@@ -41,7 +46,7 @@ namespace ToSic.Sxc.Data
         /// <param name="key">the key, case-insensitive</param>
         /// <returns>A value (string, int etc.), <see cref="DynamicJacket"/> or <see cref="DynamicJacketList"/></returns>
         public object this[string key] 
-            => FindValueOrNull(key, StringComparison.InvariantCultureIgnoreCase);
+            => FindValueOrNull(key, StringComparison.InvariantCultureIgnoreCase, null);
 
         /// <summary>
         /// Access the properties of this object.
@@ -52,7 +57,7 @@ namespace ToSic.Sxc.Data
         public object this[string key, bool caseSensitive]
             => FindValueOrNull(key, caseSensitive 
                 ? StringComparison.Ordinal
-                : StringComparison.InvariantCultureIgnoreCase);
+                : StringComparison.InvariantCultureIgnoreCase, null);
 
 
         #region Private TryGetMember
@@ -65,29 +70,31 @@ namespace ToSic.Sxc.Data
         /// <returns>always returns true, to avoid errors</returns>
         public override bool TryGetMember(GetMemberBinder binder, out object result)
         {
-            result = FindValueOrNull(binder.Name, StringComparison.InvariantCultureIgnoreCase);
+            result = FindValueOrNull(binder.Name, StringComparison.InvariantCultureIgnoreCase, null);
             // always say it was found to prevent runtime errors
             return true;
         }
 
-        private object FindValueOrNull(string name, StringComparison comparison)
+        protected override object FindValueOrNull(string name, StringComparison comparison, ILog parentLogOrNull)
         {
-            if (UnwrappedContents == null || !UnwrappedContents.HasValues)
+            if (UnwrappedContents == null || !UnwrappedContents.Any())
                 return null;
 
-            var found = UnwrappedContents.Properties()
-                .FirstOrDefault(
-                    p => string.Equals(p.Name, name, comparison));
+            var found = UnwrappedContents.FirstOrDefault(
+                    p => string.Equals(p.Key, name, comparison));
 
-            return DynamicJacket.WrapOrUnwrap(found?.Value);
+            return WrapIfJObjectUnwrapIfJValue(found.IsNullOrDefault() ? null : found.Value);
         }
 
         #endregion
 
         /// <inheritdoc />
-        public override object this[int index] => (_propertyArray ?? (_propertyArray = UnwrappedContents.Properties().ToArray()))[index];
+        // ReSharper disable once ConvertToNullCoalescingCompoundAssignment
+        public override object this[int index] => (_propertyArray ?? (_propertyArray = UnwrappedContents.Select(p => p.Value).ToArray()))[index];
 
-        private JProperty[] _propertyArray;
+        private JsonNode[] _propertyArray;
 
+        /// <inheritdoc />
+        object IHasJsonSource.JsonSource => UnwrappedContents;
     }
 }

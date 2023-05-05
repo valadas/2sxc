@@ -1,9 +1,7 @@
 ﻿using System;
 using ToSic.Eav.Apps.Environment;
-using ToSic.Eav.Apps.Run;
 using ToSic.Eav.Context;
-using ToSic.Eav.Logging;
-using ToSic.Sxc.Context;
+using ToSic.Lib.Services;
 
 
 namespace ToSic.Sxc.Cms.Publishing
@@ -13,7 +11,7 @@ namespace ToSic.Sxc.Cms.Publishing
     /// NOTE: It is currently not in use, and that's ok. 
     /// </summary>
     // ReSharper disable once UnusedMember.Global
-    public class NoPagePublishing : HasLog<IPagePublishing>, IPagePublishing
+    public class NoPagePublishing : ServiceBase, IPagePublishing
     {
         #region Constructors
 

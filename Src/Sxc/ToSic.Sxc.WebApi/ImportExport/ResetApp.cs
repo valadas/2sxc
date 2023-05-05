@@ -1,13 +1,19 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using ToSic.Eav.Apps.ImportExport;
 using ToSic.Eav.Apps.ImportExport.ImportHelpers;
+using ToSic.Eav.Apps.Parts;
+using ToSic.Eav.Configuration;
 using ToSic.Eav.Context;
-using ToSic.Eav.Logging;
+using ToSic.Lib.Logging;
+using ToSic.Eav.Persistence.Interfaces;
 using ToSic.Eav.Persistence.Logging;
-using ToSic.Eav.Run;
+using ToSic.Eav.Security;
 using ToSic.Eav.WebApi.Dto;
 using ToSic.Eav.WebApi.Security;
+using ToSic.Lib.DI;
+using ToSic.Lib.Services;
 using ToSic.Sxc.Apps;
 
 namespace ToSic.Sxc.WebApi.ImportExport
@@ -15,59 +21,71 @@ namespace ToSic.Sxc.WebApi.ImportExport
     /// <summary>
     /// This object will ensure that an app is reset to the state it was in when the app.xml was last exported
     /// </summary>
-    public class ResetApp: HasLog
+    public class ResetApp: ServiceBase
     {
-
         #region Constructor / DI
 
-        public ResetApp(IZoneMapper zoneMapper, 
-            Lazy<XmlImportWithFiles> xmlImportWithFilesLazy,
+        public ResetApp(
+            LazySvc<XmlImportWithFiles> xmlImportWithFilesLazy,
             ImpExpHelpers impExpHelpers,
-            CmsZones cmsZones) : base("Bck.Export")
+            CmsZones cmsZones,
+            ISite site,
+            IUser user,
+            IImportExportEnvironment env,
+            ZipImport zipImport,
+            IFeaturesInternal features
+            ) : base("Bck.Export")
         {
-            _zoneMapper = zoneMapper;
-            _xmlImportWithFilesLazy = xmlImportWithFilesLazy;
-            _impExpHelpers = impExpHelpers;
-            _cmsZones = cmsZones;
+            ConnectServices(
+                _xmlImportWithFilesLazy = xmlImportWithFilesLazy,
+                _impExpHelpers = impExpHelpers,
+                _cmsZones = cmsZones,
+                _site = site,
+                _user = user,
+                _env = env,
+                _zipImport = zipImport,
+                _features = features
+            );
         }
 
-        private readonly IZoneMapper _zoneMapper;
-        private readonly Lazy<XmlImportWithFiles> _xmlImportWithFilesLazy;
+        private readonly LazySvc<XmlImportWithFiles> _xmlImportWithFilesLazy;
         private readonly ImpExpHelpers _impExpHelpers;
         private readonly CmsZones _cmsZones;
-        private IUser _user;
-        private int _siteId;
-        public ResetApp Init(int siteId, IUser user, ILog parentLog)
-        {
-            Log.LinkTo(parentLog);
-            _zoneMapper.Init(Log);
-            _user = user;
-            _siteId = siteId;
-            return this;
-        }
+        private readonly ISite _site;
+        private readonly IUser _user;
+        private readonly IImportExportEnvironment _env;
+        private readonly ZipImport _zipImport;
+        private readonly IFeaturesInternal _features;
 
         #endregion
 
-        public ImportResultDto Reset(int zoneId, int appId, string defaultLanguage)
+        internal ImportResultDto Reset(int zoneId, int appId, string defaultLanguage, bool withSiteFiles)
         {
-            Log.Add($"Reset App {zoneId}/{appId}");
+            Log.A($"Reset App {zoneId}/{appId}");
             var result = new ImportResultDto();
 
-            SecurityHelpers.ThrowIfNotAdmin(_user);
+            SecurityHelpers.ThrowIfNotAdmin(_user.IsSiteAdmin, Log);
 
-            var contextZoneId = _zoneMapper.GetZoneId(_siteId);
-            var currentApp = _impExpHelpers.Init(Log).GetAppAndCheckZoneSwitchPermissions(zoneId, appId, _user, contextZoneId);
+            // Ensure feature available...
+            ExportApp.SyncWithSiteFilesVerifyFeaturesOrThrow(_features, withSiteFiles);
 
-            // 1. Verify the file exists before we flush
-            var path = currentApp.PhysicalPath + "\\" + Eav.Constants.FolderData;
-            if (!Directory.Exists(path))
-            {
-                result.Success = false;
-                result.Messages.Add(new Message("Error: Path to app.xml not found on hard disk", Message.MessageTypes.Error));
-                return result;
-            }
+            var contextZoneId = _site.ZoneId;
+            var currentApp = _impExpHelpers.GetAppAndCheckZoneSwitchPermissions(zoneId, appId, _user, contextZoneId);
 
-            var filePath = Path.Combine(path, Eav.Constants.AppDataFile);
+            // migrate old .data/app.xml to App_Data
+            ZipImport.MigrateOldAppDataFile(currentApp.PhysicalPath);
+
+            //// 1. Verify the file exists before we flush
+            //var path = Path.Combine(currentApp.PhysicalPath, Eav.Constants.AppDataProtectedFolder);
+            //if (!Directory.Exists(path))
+            //{
+            //    result.Success = false;
+            //    result.Messages.Add(new Message($"Error: Path to {Eav.Constants.AppDataFile} not found on hard disk", Message.MessageTypes.Error));
+            //    return result;
+            //}
+
+            var appDataFolder = Path.Combine(currentApp.PhysicalPath, Eav.Constants.AppDataProtectedFolder);
+            var filePath = Path.Combine(appDataFolder, Eav.Constants.AppDataFile);
             if (!File.Exists(filePath))
             {
                 result.Success = false;
@@ -76,11 +94,29 @@ namespace ToSic.Sxc.WebApi.ImportExport
             }
 
             // 2. Now we can delete the app before we prepare the import
-            _cmsZones.Init(zoneId, Log).AppsMan.RemoveAppInSiteAndEav(appId, false);
+            _cmsZones.SetId(zoneId).AppsMan.RemoveAppInSiteAndEav(appId, false);
 
-            // 3. Now import the App.xml
-            var allowSystemChanges = _user.IsSuperUser;
-            var xmlImport = _xmlImportWithFilesLazy.Value.Init(defaultLanguage, allowSystemChanges, Log);
+            // 3. Optional reset SiteFiles
+            if (withSiteFiles)
+            {
+                var sourcePath = Path.Combine(currentApp.PhysicalPath, Eav.Constants.AppDataProtectedFolder);
+
+                // Copy app global template files persisted in /App_Data/2sexyGlobal/ back to app [globalTemplatesRoot]
+                var globalTemplatesStateFolder = Path.Combine(appDataFolder, Eav.Constants.ZipFolderForGlobalAppStuff);
+                if (Directory.Exists(globalTemplatesStateFolder))
+                {
+                    _zipImport.Init(zoneId, appId, allowCode: true);
+                    var discard = new List<Message>();
+                    _zipImport.CopyAppGlobalFiles(discard, appId, sourcePath, deleteGlobalTemplates: true, overwriteFiles: true);
+                }
+
+                // Copy portal files persisted in /App_Data/SiteFiles/ back to site
+                _env.TransferFilesToSite(Path.Combine(sourcePath, Eav.Constants.ZipFolderForSiteFiles), string.Empty);
+            }
+
+            // 4. Now import the App.xml
+            var allowSystemChanges = _user.IsSystemAdmin;
+            var xmlImport = _xmlImportWithFilesLazy.Value.Init(defaultLanguage, allowSystemChanges);
             var imp = new ImportXmlReader(filePath, xmlImport, Log);
             result.Success = xmlImport.ImportXml(zoneId, appId, imp.XmlDoc);
             result.Messages.AddRange(xmlImport.Messages);

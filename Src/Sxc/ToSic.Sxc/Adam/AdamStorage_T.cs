@@ -1,12 +1,17 @@
-﻿namespace ToSic.Sxc.Adam
+﻿using ToSic.Lib.Helpers;
+using ToSic.Lib.Logging;
+
+namespace ToSic.Sxc.Adam
 {
     public abstract class AdamStorage<TFolderId, TFileId>: AdamStorage
     {
-        protected AdamStorage(AdamManager<TFolderId, TFileId> manager): base("Adm.Base")
+        protected AdamStorage(): base("Adm.Base")
         {
-            Manager = manager;
         }
-        public readonly AdamManager<TFolderId, TFileId> Manager;
+
+        public void Init(AdamManager<TFolderId, TFileId> manager) => Manager = manager;
+
+        public AdamManager<TFolderId, TFileId> Manager { get; private set; }
 
 
         /// <summary>
@@ -17,10 +22,9 @@
         /// </remarks>
         internal Folder<TFolderId, TFileId> Folder(string subFolder, bool autoCreate)
         {
-            var callLog = Log.Call($"{nameof(Folder)}(\"{subFolder}\", {autoCreate})");
+            var callLog = Log.Fn<Folder<TFolderId, TFileId>>($"{nameof(Folder)}(\"{subFolder}\", {autoCreate})");
             var fld = Manager.Folder(GeneratePath(subFolder), autoCreate);
-            callLog("ok");
-            return fld;
+            return callLog.ReturnAsOk(fld);
         }
 
 
@@ -28,8 +32,8 @@
         /// Get a (root) folder object for this container
         /// </summary>
         /// <returns></returns>
-        internal Folder<TFolderId, TFileId> Folder() => _folder ?? (_folder = Folder("", true));
-        private Folder<TFolderId, TFileId> _folder;
+        internal Folder<TFolderId, TFileId> Folder(bool autoCreate = false) => _folder.Get(() => Folder("", autoCreate));
+        private readonly GetOnce<Folder<TFolderId, TFileId>> _folder = new GetOnce<Folder<TFolderId, TFileId>>();
 
     }
 }

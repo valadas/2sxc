@@ -1,14 +1,14 @@
 ﻿using System;
-using ToSic.Eav;
+using System.Collections.Generic;
+using ToSic.Eav.Apps;
+using ToSic.Eav.DataSource;
+using ToSic.Eav.DataSource.Query;
 using ToSic.Eav.DataSources;
-using ToSic.Eav.DataSources.Queries;
-using ToSic.Eav.Documentation;
-using ToSic.Eav.Logging;
-using ToSic.Eav.Logging.Simple;
-using ToSic.Eav.LookUp;
-using ToSic.Sxc.Blocks;
-using ToSic.Sxc.Compatibility;
+using ToSic.Lib.Documentation;
 using ToSic.Sxc.Data;
+#if NETFRAMEWORK
+using ToSic.Sxc.Compatibility;
+#endif
 
 namespace ToSic.Sxc.DataSources
 {
@@ -19,67 +19,35 @@ namespace ToSic.Sxc.DataSources
     [InternalApi_DoNotUse_MayChangeWithoutNotice]
     public class Block : PassThrough, IBlockDataSource
     {
-        [PrivateApi]
-        public override string LogId => "Sxc.BlckDs";
-
         [PrivateApi("older use case, probably don't publish")]
         public DataPublishing Publish { get; }= new DataPublishing();
 
-        [Obsolete]
+        internal void SetOut(Query querySource) => _querySource = querySource;
+        private Query _querySource;
+
+        public override IReadOnlyDictionary<string, IDataStream> Out => _querySource?.Out ?? base.Out;
+
+        [PrivateApi("not meant for public use")]
+        public Block(MyServices services, IAppStates appStates) : base(services, "Sxc.BlckDs") => _appStates = appStates;
+        private readonly IAppStates _appStates;
+
+#if NETFRAMEWORK
+#pragma warning disable 618
+        [Obsolete("Old property on this data source, should really not be used at all. Must add warning in v13, and remove ca. v15")]
         [PrivateApi]
-        public CacheWithGetContentType Cache 
-            => _cache ?? (_cache = new CacheWithGetContentType(Eav.Apps.State.Get(this)));
+        public CacheWithGetContentType Cache
+        {
+            get
+            {
+                if (_cache != null) return _cache;
+                Obsolete.Warning13To15("Data.Cache", "", "https://r.2sxc.org/brc-13-datasource-cache");
+                return _cache = new CacheWithGetContentType(_appStates.Get(this));
+            }
+        }
+
         [Obsolete]
         private CacheWithGetContentType _cache;
-
-        
-        //[PrivateApi]
-        //internal static IBlockDataSource GetBlockDataSource(IBlock block, IView view, ILookUpEngine configurationProvider, ILog parentLog)
-        //{
-        //    var log = new Log("DS.CreateV", parentLog, "will create view data source");
-        //    var showDrafts = block.EditAllowed;
-
-        //    log.Add($"mid#{block.Context.Container.Id}, draft:{showDrafts}, template:{view?.Name}");
-        //    // Get ModuleDataSource
-        //    var dsFactory = new DataSource(log);
-        //    //var block = builder.Block;
-        //    var initialSource = dsFactory.GetPublishing(block, showDrafts, configurationProvider);
-        //    var moduleDataSource = dsFactory.GetDataSource<CmsBlock>(initialSource);
-        //    //moduleDataSource.InstanceId = instanceId;
-
-        //    moduleDataSource.OverrideView = view;
-        //    moduleDataSource.UseSxcInstanceContentGroup = true;
-
-        //    // If the Template has a Data-Pipeline, use an empty upstream, else use the ModuleDataSource created above
-        //    var viewDataSourceUpstream = view?.Query == null
-        //        ? moduleDataSource
-        //        : null;
-        //    log.Add($"use pipeline upstream:{viewDataSourceUpstream != null}");
-
-        //    var viewDataSource = dsFactory.GetDataSource<Block>(block, viewDataSourceUpstream, configurationProvider);
-
-        //    // Take Publish-Properties from the View-Template
-        //    if (view != null)
-        //    {
-        //        viewDataSource.Publish.Enabled = view.PublishData;
-        //        viewDataSource.Publish.Streams = view.StreamsToPublish;
-
-        //        log.Add($"use template, & pipe#{view.Query?.Id}");
-        //        // Append Streams of the Data-Pipeline (this doesn't require a change of the viewDataSource itself)
-        //        if (view.Query != null)
-        //        {
-        //            log.Add("Generate query");
-        //            var query = new Query(block.App.ZoneId, block.App.AppId, view.Query.Entity, configurationProvider, showDrafts, viewDataSource, parentLog);
-        //            log.Add("attaching");
-        //            viewDataSource.Out = query.Out;
-        //        }
-        //    }
-        //    else
-        //        log.Add("no template override");
-
-        //    return viewDataSource;
-        //}
-
-        internal void SetOut(Query querySource) => Out = querySource.Out;
+#pragma warning restore 618
+#endif
     }
 }

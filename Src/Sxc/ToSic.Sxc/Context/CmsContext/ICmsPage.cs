@@ -1,4 +1,6 @@
-﻿using ToSic.Eav.Documentation;
+﻿using ToSic.Eav.Metadata;
+using ToSic.Lib.Documentation;
+using ToSic.Sxc.Data;
 
 namespace ToSic.Sxc.Context
 {
@@ -11,13 +13,42 @@ namespace ToSic.Sxc.Context
     /// as it would then be running on a WebApi.
     /// </remarks>
     [PublicApi]
-    public interface ICmsPage
+    public interface ICmsPage: IHasMetadata
     {
         /// <summary>
         /// The Id of the page.
-        /// Corresponds to the Dnn TabId
+        /// 
+        /// 🪒 Use in Razor: `CmsContext.Page.Type`
         /// </summary>
+        /// <remarks>
+        /// Corresponds to the Dnn `TabId` or the Oqtane `Page.PageId`
+        /// </remarks>
         int Id { get; }
+        
+        /// <summary>
+        /// The page parameters, cross-platform.
+        /// Use this for easy access to url parameters like ?id=xyz
+        /// with `CmsContext.Page.Parameters["id"]` as a replacement for `Request.QueryString["id"]`
+        /// 
+        /// 🪒 Use in Razor: `CmsContext.Page.Parameters["id"]`
+        /// </summary>
+        IParameters Parameters { get; }
 
+        // unsure if used
+        /// <summary>
+        /// The resource specific url, like the one to this page or portal
+        /// </summary>
+        [PrivateApi("Not yet official property, must decide if we'll put in on the ICmsPage or maybe on an ICmsUrl or something")]
+        string Url { get; }
+
+        /// <summary>
+        /// Metadata of the current page
+        /// </summary>
+        /// <remarks>
+        /// Added in v13.12
+        /// </remarks>
+#pragma warning disable CS0108, CS0114
+        IDynamicMetadata Metadata { get; }
+#pragma warning restore CS0108, CS0114
     }
 }

@@ -1,24 +1,27 @@
 ﻿using System;
 using System.Linq;
 using ToSic.Eav.Data;
-using ToSic.Eav.DataSources.Queries;
-using ToSic.Eav.Documentation;
-using ToSic.Eav.Logging;
+using ToSic.Eav.DataSource.Query;
+using ToSic.Lib.DI;
+using ToSic.Lib.Documentation;
+using ToSic.Lib.Helpers;
+using ToSic.Lib.Logging;
+using ToSic.Sxc.Apps.Assets;
 using IEntity = ToSic.Eav.Data.IEntity;
 
 namespace ToSic.Sxc.Blocks
 {
+    [PrivateApi("Internal implementation - don't publish")]
     public partial class View: EntityBasedWithLog, IView
     {
+
         #region Constructors
 
-        public View(IEntity templateEntity, string languageCode, ILog parentLog) : base(templateEntity, languageCode, parentLog, "Sxc.View")
+        public View(IEntity templateEntity, string[] languageCodes, ILog parentLog, LazySvc<QueryDefinitionBuilder> qDefBuilder) : base(templateEntity, languageCodes, parentLog, "Sxc.View")
         {
+            _qDefBuilder = qDefBuilder;
         }
-        
-        public View(IEntity templateEntity, string[] languageCodes, ILog parentLog) : base(templateEntity, languageCodes, parentLog, "Sxc.View")
-        {
-        }
+        private readonly LazySvc<QueryDefinitionBuilder> _qDefBuilder;
 
         #endregion
 
@@ -26,6 +29,10 @@ namespace ToSic.Sxc.Blocks
 
 
         public string Name => Get(FieldName, "unknown name");
+
+        public string Identifier => Get(FieldIdentifier, "");
+        
+        public string Icon => Get(FieldIcon, "");
 
         public string Path => Get(FieldPath, "");
 
@@ -62,55 +69,51 @@ namespace ToSic.Sxc.Blocks
 
         public bool IsHidden => Get(FieldIsHidden, false);
 
-        public string Location => Get(FieldLocation, Settings.TemplateLocations.PortalFileSystem);
-
-        public bool IsShared => Location == Settings.TemplateLocations.HostFileSystem;
+        public bool IsShared => _isShared ?? (_isShared = AppAssets.IsShared(Get(FieldLocation, AppAssets.AppInSite))).Value;
+        private bool? _isShared;
 
         public bool UseForList => Get(FieldUseList, false);
         public bool PublishData => Get(FieldPublishEnable, false);
         public string StreamsToPublish => Get(FieldPublishStreams, "");
 
-        [PrivateApi]
-        public IEntity QueryRaw
-        {
-            get
-            {
-                InitializeQueryStuff();
-                return _queryRaw;
-            }
-        }
-        private IEntity _queryRaw;
+        public IEntity QueryRaw => QueryInfo.Entity;
 
-        [PrivateApi]
-        public QueryDefinition Query
-        {
-            get
-            {
-                InitializeQueryStuff();
-                return _query;
-            }
-        }
-        private QueryDefinition _query;
+        public QueryDefinition Query => QueryInfo.Definition;
 
-        private void InitializeQueryStuff()
+        private (IEntity Entity, QueryDefinition Definition) QueryInfo => _queryInfo.Get(() =>
         {
-            if (_queryInitialized) return;
-            _queryInitialized = true;
-            _queryRaw = GetBestRelationship(FieldPipeline);
-            if (_queryRaw != null)
-                _query = new QueryDefinition(_queryRaw, Entity.AppId, Log);
-        }
-        private bool _queryInitialized;
+            var queryRaw = GetBestRelationship(FieldPipeline);
+            var query = queryRaw != null
+                ? _qDefBuilder.Value.Create(queryRaw, Entity.AppId)
+                : null;
+            return (queryRaw, query);
+        });
+
+        private readonly GetOnce<(IEntity Entity, QueryDefinition Definition)> _queryInfo =
+            new GetOnce<(IEntity Entity, QueryDefinition Definition)>();
 
         public string UrlIdentifier => Entity.Value<string>(FieldNameInUrl);
 
         /// <summary>
         /// Returns true if the current template uses Razor
         /// </summary>
-        [PrivateApi]
         public bool IsRazor => Type == TypeRazorValue;
 
-        [PrivateApi]
         public string Edition { get; set; }
+
+        public string EditionPath { get; set; }
+
+        public IEntity Resources => GetBestRelationship(FieldResources);
+
+        public IEntity Settings => GetBestRelationship(FieldSettings);
+
+        /// <inheritdoc />
+        public bool SearchIndexingDisabled => Get(FieldSearchDisabled, false);
+
+        /// <inheritdoc />
+        public string ViewController => Get(FieldViewController, "");
+
+        /// <inheritdoc />
+        public string SearchIndexingStreams => Get(FieldSearchStreams, "");
     }
 }

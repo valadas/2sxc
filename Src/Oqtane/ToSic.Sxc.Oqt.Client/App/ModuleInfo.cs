@@ -1,20 +1,11 @@
 using Oqtane.Models;
 using Oqtane.Modules;
 
+// ReSharper disable once CheckNamespace
 namespace ToSic.Sxc.Oqt.App
 {
     public class ModuleInfo : IModule
     {
-        public ModuleDefinition ModuleDefinition => new ModuleDefinition
-        {
-            Name = "App",
-            Description = "2sxc helps create designed, cross-platform content",
-            Version = "0.0.55",
-            ServerManagerType = "ToSic.Sxc.Oqt.Server.Manager.SxcManager, ToSic.Sxc.Oqtane.Server",
-            ReleaseVersions = "0.0.55",
-            Dependencies = "ToSic.Sxc.Oqtane.Shared",
-            Categories = "Common",
-            Runtimes = "Server",
-        };
+        public ModuleDefinition ModuleDefinition => Content.ModuleInfo.BuildModuleDefinition("App", "2sxc Apps are rich, self-contained extensions");
     }
 }

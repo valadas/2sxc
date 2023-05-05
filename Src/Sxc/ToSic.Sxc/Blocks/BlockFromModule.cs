@@ -1,11 +1,6 @@
-﻿using System;
-using ToSic.Eav.Apps.Run;
-using ToSic.Eav.Context;
-using ToSic.Eav.Documentation;
-using ToSic.Eav.Logging;
+﻿using ToSic.Lib.Documentation;
+using ToSic.Lib.Logging;
 using ToSic.Sxc.Context;
-using ToSic.Sxc.DataSources;
-
 
 namespace ToSic.Sxc.Blocks
 {
@@ -17,7 +12,7 @@ namespace ToSic.Sxc.Blocks
         /// <summary>
         /// Official constructor, must call Init afterwards
         /// </summary>
-        public BlockFromModule(Lazy<BlockDataSourceFactory> bdsFactoryLazy) : base(bdsFactoryLazy, "CB.Mod") { }
+        public BlockFromModule(MyServices services) : base(services, "CB.Mod") { }
 
         #endregion
 
@@ -25,15 +20,14 @@ namespace ToSic.Sxc.Blocks
         /// Create a module-content block
         /// </summary>
         /// <param name="ctx"></param>
-        /// <param name="parentLog">a parent-log; can be null but where possible you should wire one up</param>
         ///// <param name="overrideParams">optional override parameters</param>
-        public BlockFromModule Init(IContextOfBlock ctx, ILog parentLog)
+        public BlockFromModule Init(IContextOfBlock ctx)
         {
-            Init(ctx, ctx.Module.BlockIdentifier, parentLog);
-            var wrapLog = Log.Call<BlockFromModule>();
-            IsContentApp = ctx.Module.IsPrimary;
+            Init(ctx, ctx.Module.BlockIdentifier);
+            var wrapLog = Log.Fn<BlockFromModule>(timer: true);
+            IsContentApp = ctx.Module.IsContent;
             CompleteInit(null, ctx.Module.BlockIdentifier, ctx.Module.Id);
-            return wrapLog("ok", this);
+            return wrapLog.ReturnAsOk(this);
         }
 
     }

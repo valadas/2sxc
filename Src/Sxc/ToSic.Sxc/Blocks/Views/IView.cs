@@ -1,6 +1,6 @@
 ﻿using ToSic.Eav.Data;
-using ToSic.Eav.DataSources.Queries;
-using ToSic.Eav.Documentation;
+using ToSic.Eav.DataSource.Query;
+using ToSic.Lib.Documentation;
 
 namespace ToSic.Sxc.Blocks
 {
@@ -15,6 +15,18 @@ namespace ToSic.Sxc.Blocks
         /// </summary>
         string Name { get; }
 
+        /// <summary>
+        /// An optional unique identifier for this View configuration. 
+        /// </summary>
+        /// <remarks>New in 12.02</remarks>
+        string Identifier { get; }
+        
+        /// <summary>
+        /// An optional Icon for this View configuration. Would be used instead of the file name in the App-folder. WIP
+        /// </summary>
+        /// <remarks>New in 12.02</remarks>
+        string Icon { get; }
+        
         /// <summary>
         /// Path to the template
         /// </summary>
@@ -40,13 +52,9 @@ namespace ToSic.Sxc.Blocks
         bool IsHidden { get; }
 
         /// <summary>
-        /// Location of the template - in the current tenant/portal or global/shared location.
-        /// </summary>
-        string Location { get; }
-
-        /// <summary>
         /// Translates the location to tell us if it's a shared view (the template is in a shared location)
         /// </summary>
+        // TODO: SHOULD PROBABLY rename to something else like IsGlobal ? 
         bool IsShared { get; }
 
         /// <summary>
@@ -85,7 +93,32 @@ namespace ToSic.Sxc.Blocks
         /// Contains the polymorph edition name for this view, which changes
         /// what path is loaded.
         /// </summary>
-        [PrivateApi]
-        string Edition { get; set; }
+        [PrivateApi] string Edition { get; set; }
+
+        [PrivateApi] string EditionPath { get; set; }
+
+
+        [PrivateApi("WIP 12.02")] IEntity Resources { get; }
+
+        [PrivateApi("WIP 12.02")] IEntity Settings { get; }
+
+        /// <summary>
+        /// Determines if search indexing should be disabled - so this view will not provide search data.
+        /// </summary>
+        bool SearchIndexingDisabled { get; }
+        
+        /// <summary>
+        /// The external class which should be compiled / used to customize search.
+        /// 
+        /// In future this could do more, which is why it's called ViewController and not SearchController or something. 
+        /// </summary>
+        string ViewController { get; }
+
+        /// <summary>
+        /// Streams which should be included in the search index.
+        /// If empty will use all streams.
+        /// CSV
+        /// </summary>
+        string SearchIndexingStreams {get;}
     }
 }

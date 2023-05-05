@@ -4,8 +4,8 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using ToSic.Eav.Context;
-using ToSic.Eav.Documentation;
 using ToSic.Eav.LookUp;
+using ToSic.Lib.Documentation;
 using ToSic.Sxc.Data;
 
 namespace ToSic.Sxc.LookUp
@@ -112,7 +112,7 @@ namespace ToSic.Sxc.LookUp
         }
 
 
-        private CultureInfo GetCultureInfo() => IZoneCultureResolverExtensions.SafeCultureInfo(_entity?.Dimensions);
+        private CultureInfo GetCultureInfo() => IZoneCultureResolverExtensions.SafeCultureInfo(_entity?._Services.Dimensions);
 
         [PrivateApi]
 		public string Get(string key, string strFormat) => GetProperty(key, strFormat);

@@ -1,33 +1,53 @@
 ﻿using System;
 using System.IO;
 using Microsoft.AspNetCore.Hosting;
+using Oqtane.Repository;
+using ToSic.Eav.Helpers;
 using ToSic.Eav.Run;
+using ToSic.Lib.DI;
 using ToSic.Sxc.Oqt.Shared;
 
 namespace ToSic.Sxc.Oqt.Server.Run
 {
-    public class OqtServerPaths : IServerPaths
+    public class OqtServerPaths : ServerPathsBase
     {
-        public OqtServerPaths(IWebHostEnvironment hostingEnvironment) => _hostingEnvironment = hostingEnvironment;
-        private readonly IWebHostEnvironment _hostingEnvironment;
-
-
-        public string FullAppPath(string virtualPath) => FullContentPath(virtualPath);
-
-
-        public string FullContentPath(string virtualPath)
+        public OqtServerPaths(IWebHostEnvironment hostingEnvironment, LazySvc<IFileRepository> fileRepository)
         {
-            var path = NoLeadingSlashes(virtualPath);
-            // sometimes the inbound path already contains the "Content" folder of oqtane, sometimes not
-            if (path.StartsWith(OqtConstants.ContentSubfolder, StringComparison.InvariantCultureIgnoreCase))
-            {
-                path = path.Remove(0, OqtConstants.ContentSubfolder.Length);
-                path = NoLeadingSlashes(path);
-            }
-            return Path.Combine(_hostingEnvironment.ContentRootPath, OqtConstants.ContentSubfolder, path);
+            
+            _hostingEnvironment = hostingEnvironment;
+            _fileRepository = fileRepository;
         }
 
-        private static string NoLeadingSlashes(string path) => path.TrimStart('/').TrimStart('\\');
+        private readonly IWebHostEnvironment _hostingEnvironment;
+        private readonly LazySvc<IFileRepository> _fileRepository;
+
+
+        public override string FullAppPath(string virtualPath) => FullContentPath(virtualPath);
+
+
+        public override string FullContentPath(string virtualPath)
+        {
+            var path = virtualPath.Backslash().TrimPrefixSlash();
+            return Path.Combine(_hostingEnvironment.ContentRootPath, path);
+        }
+
+
+        protected override string FullPathOfReference(int id) => _fileRepository.Value.GetFilePath(id);
+
+        public static string GetAppRootWithSiteId(int siteId)
+        {
+            return string.Format(OqtConstants.AppRootPublicBase, siteId);
+        }
+
+        public static string GetAppPath(int siteId, string appFolder)
+        {
+            return Path.Combine(GetAppRootWithSiteId(siteId), appFolder);
+        }
+
+        public static string GetAppApiPath(int siteId, string appFolder, string apiPath)
+        {
+            return Path.Combine(GetAppPath(siteId, appFolder), apiPath);
+        }
     }
 
 }

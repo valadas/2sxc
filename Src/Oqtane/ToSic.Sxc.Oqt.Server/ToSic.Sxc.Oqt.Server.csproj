@@ -1,76 +1,124 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
-    <Version>0.0.55</Version>
-    <Product>ToSic.Sxc</Product>
-    <Authors>ToSic</Authors>
-    <Company>ToSic</Company>
-    <Description>2sic 2sxc Oqtane POC</Description>
-    <Copyright>ToSic</Copyright>
     <AssemblyName>ToSic.Sxc.Oqtane.Server</AssemblyName>
     <!--2dm I think we need this to include DLLs-->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <RunAnalyzersDuringBuild>false</RunAnalyzersDuringBuild>
     <AnalysisLevel>none</AnalysisLevel>
+    <Configurations>Debug;Release;DebugOqtane;DebugDnn</Configurations>
+    <Deterministic>true</Deterministic>
+    <AutoGenerateBindingRedirects>False</AutoGenerateBindingRedirects>
+    <!-- Don't generate assembly properties from this XML which should come from the core file, like version - these lines must be in sync in all ToSic.Eav.*.csproj files -->
+    <GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
+    <GenerateAssemblyFileVersionAttribute>false</GenerateAssemblyFileVersionAttribute>
+    <GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>
+    <GenerateAssemblyProductAttribute>false</GenerateAssemblyProductAttribute>
+    <GenerateAssemblyCompanyAttribute>false</GenerateAssemblyCompanyAttribute>
+    <GenerateAssemblyCopyrightAttribute>false</GenerateAssemblyCopyrightAttribute>
+    <!-- end: Don't generate... -->
 
     <!-- 2dm - this seems necessary to ensure that compiler DLLs are included in the output -->
     <!-- See: https://github.com/toddams/RazorLight/issues/294 and https://stackoverflow.com/questions/40426665/what-is-the-use-of-preservecompilationcontext-under-build-option-in-project-json -->
     <!-- also https://github.com/dotnet/aspnetcore/issues/14418 -->
-    <!-- but apparently we don't need it, bcause it's set when we activate dynamic razor compilation ... https://github.com/dotnet/aspnetcore/issues/20173 ??? --> 
+    <!-- but apparently we don't need it, bcause it's set when we activate dynamic razor compilation ... https://github.com/dotnet/aspnetcore/issues/20173 ??? -->
     <!--<PreserveCompilationReferences>true</PreserveCompilationReferences>
     <PreserveCompilationContext>true</PreserveCompilationContext>-->
   </PropertyGroup>
-
   <ItemGroup>
+    <Compile Remove="Apps\**" />
+    <Compile Remove="Contents\**" />
+    <Compile Remove="Content\**" />
     <Compile Remove="Engines\**" />
     <Compile Remove="RazorPartialToString\**" />
+    <Compile Remove="wwwroot\Modules\ToSic.Sxc.Oqtane\**" />
+    <Compile Remove="wwwroot\Modules\ToSic.Sxc\**" />
+    <Content Remove="Apps\**" />
+    <Content Remove="Contents\**" />
+    <Content Remove="Content\**" />
     <Content Remove="Engines\**" />
     <Content Remove="RazorPartialToString\**" />
+    <Content Remove="wwwroot\Modules\ToSic.Sxc.Oqtane\**" />
+    <Content Remove="wwwroot\Modules\ToSic.Sxc\**" />
+    <EmbeddedResource Remove="Apps\**" />
+    <EmbeddedResource Remove="Contents\**" />
+    <EmbeddedResource Remove="Content\**" />
     <EmbeddedResource Remove="Engines\**" />
     <EmbeddedResource Remove="RazorPartialToString\**" />
+    <EmbeddedResource Remove="wwwroot\Modules\ToSic.Sxc.Oqtane\**" />
+    <EmbeddedResource Remove="wwwroot\Modules\ToSic.Sxc\**" />
+    <None Remove="Apps\**" />
+    <None Remove="Contents\**" />
+    <None Remove="Content\**" />
     <None Remove="Engines\**" />
     <None Remove="RazorPartialToString\**" />
+    <None Remove="wwwroot\Modules\ToSic.Sxc.Oqtane\**" />
+    <None Remove="wwwroot\Modules\ToSic.Sxc\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="StartUp\IIsSxcRazorPage.cs" />
+    <Compile Remove="StartUp\SxcRazorPage.cs" />
+    <Compile Remove="StartUp\SxcRazorPage_Block.cs" />
+    <Compile Remove="StartUp\SxcRazorPage_CreateInstance.cs" />
+    <Compile Remove="StartUp\SxcRazorPage_IDynamicCode.cs" />
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Remove="RazorPages\IIsSxcRazorPage.cs" />
-    <Compile Remove="RazorPages\SxcRazorPage.cs" />
-    <Compile Remove="RazorPages\SxcRazorPage_Block.cs" />
-    <Compile Remove="RazorPages\SxcRazorPage_CreateInstance.cs" />
-    <Compile Remove="RazorPages\SxcRazorPage_IDynamicCode.cs" />
+    <Compile Include="..\..\Sxc\ToSic.Sxc\Properties\AssemblyInfoInherited.cs" Link="Properties\AssemblyInfoInherited.cs" />
   </ItemGroup>
 
   <ItemGroup>
+    <!-- stv - SQL scripts have to be included as embedded resources -->
+	  <!-- to be executed as part of oqtane installation or upgrade procedure -->
     <EmbeddedResource Include="Scripts\ToSic.Sxc.0.0.1.sql" />
+    <EmbeddedResource Include="Scripts\ToSic.Sxc.12.00.00.sql" />
+    <EmbeddedResource Include="Scripts\ToSic.Sxc.12.02.01.sql" />
+    <EmbeddedResource Include="Scripts\ToSic.Sxc.12.05.00.sql" />
+    <EmbeddedResource Include="Scripts\ToSic.Sxc.13.00.00.sql" />
+    <EmbeddedResource Include="Scripts\ToSic.Sxc.13.01.00.sql" />
+    <EmbeddedResource Include="Scripts\ToSic.Sxc.15.00.00.sql" />
     <EmbeddedResource Include="Scripts\ToSic.Sxc.Uninstall.sql" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="3.2.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="3.1.4" />
-    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="3.1.4" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="6.0.3" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="6.0.3" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" Version="6.0.3" />
     <PackageReference Include="Microsoft.AspNetCore.StaticFiles" Version="2.2.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="3.1.4" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="3.1.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="6.0.3" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="6.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Localization" Version="6.0.3" />
+    <PackageReference Include="Oqtane.Server" Version="3.4.2" />
+    <PackageReference Include="Oqtane.Shared" Version="3.4.2" />
+    <PackageReference Include="ToSic.Imageflow.Oqtane" Version="1.0.4" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\..\eav-server\ToSic.Eav.Core\ToSic.Eav.Core.csproj" />
     <ProjectReference Include="..\..\..\..\eav-server\ToSic.Eav.ImportExport\ToSic.Eav.ImportExport.csproj" />
-    <ProjectReference Include="..\..\..\..\octane\oqtane.framework\Oqtane.Server\Oqtane.Server.csproj" />
-    <ProjectReference Include="..\..\..\..\octane\oqtane.framework\Oqtane.Shared\Oqtane.Shared.csproj" />
-    <ProjectReference Include="..\..\Razor\ToSic.Sxc.Razor.Engine\ToSic.Sxc.Razor.Engine.csproj" />
+    <ProjectReference Include="..\..\..\..\eav-server\ToSic.Lib.Core\ToSic.Lib.Core.csproj" />
+    <ProjectReference Include="..\..\Razor\ToSic.Sxc.Razor\ToSic.Sxc.Razor.csproj" />
     <ProjectReference Include="..\..\Sxc\ToSic.Sxc.WebApi\ToSic.Sxc.WebApi.csproj" />
     <ProjectReference Include="..\..\Sxc\ToSic.Sxc\ToSic.Sxc.csproj" />
+    <ProjectReference Include="..\ToSic.Sxc.Oqt.Client\ToSic.Sxc.Oqt.Client.csproj" />
     <ProjectReference Include="..\ToSic.Sxc.Oqt.Shared\ToSic.Sxc.Oqt.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <Reference Include="Connect.Koi">
+      <HintPath>..\..\..\Dependencies\Koi\net6.0\Connect.Koi.dll</HintPath>
+    </Reference>
     <Reference Include="ToSic.Razor">
-      <HintPath>..\..\..\Dependencies\RazorBlade\netstandard2.0\ToSic.Razor.dll</HintPath>
+      <HintPath>..\..\..\Dependencies\RazorBlade\Release\net6.0\ToSic.Razor.dll</HintPath>
     </Reference>
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="wwwroot\Modules\ToSic.Sxc.Oqtane.Install\NativeModule.js" />
+    <None Include="wwwroot\Modules\ToSic.Sxc.Oqtane.Install\Module.js" />
+  </ItemGroup>
+
 </Project>

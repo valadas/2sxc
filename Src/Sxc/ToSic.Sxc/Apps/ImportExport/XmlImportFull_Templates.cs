@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Xml.Linq;
 using ToSic.Eav.ImportExport;
+using ToSic.Lib.Logging;
 using ToSic.Eav.Persistence.Logging;
 using ToSic.Sxc.Blocks;
 
@@ -16,7 +17,7 @@ namespace ToSic.Sxc.Apps.ImportExport
 
         protected void ImportXmlTemplates(XElement root)
         {
-            Log.Add("import xml templates");
+            Log.A("import xml templates");
             var templates = root.Element(XmlConstants.Templates);
             if (templates == null) return;
 
@@ -24,7 +25,7 @@ namespace ToSic.Sxc.Apps.ImportExport
             // Otherwise it will auto-initialize, which it shouldn't do when importing data
             var appState = _repositoryLoader.AppState(AppId, false);
 
-            var viewsManager = _cmsManagerLazy.Value.InitWithState(appState, true, Log).Views;
+            var viewsManager = _cmsManagerLazy.Value.InitWithState(appState).Views;
 
             foreach (var template in templates.Elements(XmlConstants.Template))
             {
@@ -36,7 +37,7 @@ namespace ToSic.Sxc.Apps.ImportExport
 
                     var contentTypeStaticName = template.Attribute(XmlConstants.AttSetStatic).Value;
 
-                    Log.Add($"template:{name}, type:{contentTypeStaticName}, path:{path}");
+                    Log.A($"template:{name}, type:{contentTypeStaticName}, path:{path}");
 
                     if (!string.IsNullOrEmpty(contentTypeStaticName) && appState.GetContentType(contentTypeStaticName) == null)
                     {
@@ -149,7 +150,7 @@ namespace ToSic.Sxc.Apps.ImportExport
 
                     var listContentTypeStaticName = "";
                     var listContentDemoEntityId = new int?();
-                    var listContentDefault = templateDefaults.FirstOrDefault(t => t.ItemType == ViewParts.ListContent);
+                    var listContentDefault = templateDefaults.FirstOrDefault(t => t.ItemType == ViewParts.FieldHeader);
                     if (listContentDefault != null)
                     {
                         listContentTypeStaticName = listContentDefault.ContentTypeStaticName;
@@ -158,7 +159,7 @@ namespace ToSic.Sxc.Apps.ImportExport
 
                     var listPresentationTypeStaticName = "";
                     var listPresentationDemoEntityId = new int?();
-                    var listPresentationDefault = templateDefaults.FirstOrDefault(t => t.ItemType == ViewParts.ListPresentation);
+                    var listPresentationDefault = templateDefaults.FirstOrDefault(t => t.ItemType == ViewParts.FieldHeaderPresentation);
                     if (listPresentationDefault != null)
                     {
                         listPresentationTypeStaticName = listPresentationDefault.ContentTypeStaticName;
@@ -182,7 +183,7 @@ namespace ToSic.Sxc.Apps.ImportExport
                 }
 
             }
-            Log.Add("import xml templates - completed");
+            Log.A("import xml templates - completed");
         }
 
 	}

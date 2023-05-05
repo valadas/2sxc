@@ -2,16 +2,16 @@
 using ToSic.Eav.Apps;
 using ToSic.Eav.Apps.Run;
 using ToSic.Eav.Data;
-using ToSic.Eav.Logging;
+using ToSic.Lib.DI;
+using ToSic.Lib.Logging;
 using ToSic.Sxc.Context;
-using ToSic.Sxc.DataSources;
 
 namespace ToSic.Sxc.Blocks
 {
     public sealed class BlockFromEntity: BlockBase
     {
         internal const string CbPropertyApp = "App";
-        internal const string CbPropertyTitle = "Title";
+        internal const string CbPropertyTitle = Attributes.TitleNiceName;
         internal const string CbPropertyContentGroup = "ContentGroup";
 
         /// <summary>
@@ -22,28 +22,32 @@ namespace ToSic.Sxc.Blocks
         
         #region Constructor and DI
 
-        public BlockFromEntity(Lazy<BlockDataSourceFactory> bdsFactoryLazy) : base(bdsFactoryLazy, "CB.Ent") { }
+        public BlockFromEntity(MyServices services, LazySvc<AppFinder> appFinderLazy) : base(services, "CB.Ent")
+        {
+            ConnectServices(_appFinderLazy = appFinderLazy);
+        }
+        private readonly LazySvc<AppFinder> _appFinderLazy;
 
-        public BlockFromEntity Init(IBlock parent, IEntity blockEntity, ILog parentLog)
+        public BlockFromEntity Init(IBlock parent, IEntity blockEntity)
         {
             var ctx = parent.Context.Clone(Log) as IContextOfBlock;
-            Init(ctx, parent, parentLog);
-            var wrapLog = Log.Call<BlockFromEntity>($"{nameof(blockEntity)}:{blockEntity.EntityId}");
-            return wrapLog(null, CompleteInit(parent, blockEntity));
+            base.Init(ctx, parent);
+            var wrapLog = Log.Fn<BlockFromEntity>($"{nameof(blockEntity)}:{blockEntity.EntityId}", timer: true);
+            return wrapLog.Return(CompleteInit(parent, blockEntity));
         }
 
-        public BlockFromEntity Init(IBlock parent, int contentBlockId, ILog parentLog)
+        public BlockFromEntity Init(IBlock parent, int contentBlockId)
         {
             var ctx = parent.Context.Clone(Log) as IContextOfBlock;
-            Init(ctx, parent, parentLog);
-            var wrapLog = Log.Call<BlockFromEntity>($"{nameof(contentBlockId)}:{contentBlockId}");
+            base.Init(ctx, parent);
+            var wrapLog = Log.Fn<BlockFromEntity>($"{nameof(contentBlockId)}:{contentBlockId}");
             var blockEntity = GetBlockEntity(parent, contentBlockId);
-            return wrapLog(null, CompleteInit(parent, blockEntity));
+            return wrapLog.Return(CompleteInit(parent, blockEntity));
         }
-
+        
         private BlockFromEntity CompleteInit(IBlock parent, IEntity blockEntity)
         {
-            var wrapLog = Log.Call<BlockFromEntity>();
+            var wrapLog = Log.Fn<BlockFromEntity>();
             Entity = blockEntity;
             Parent = parent;
             var blockId = LoadBlockDefinition(parent.ZoneId, blockEntity, Log);
@@ -54,7 +58,7 @@ namespace ToSic.Sxc.Blocks
             AppId = blockId.AppId;
 
             CompleteInit(parent.BlockBuilder, blockId, -blockEntity.EntityId);
-            return wrapLog("ok", this);
+            return wrapLog.ReturnAsOk(this);
         }
         #endregion
 
@@ -70,7 +74,7 @@ namespace ToSic.Sxc.Blocks
         {
             // for various reasons this can be introduced as a negative value, make sure we neutralize that
             contentBlockId = Math.Abs(contentBlockId); 
-            return parent.App.Data.Immutable.One(contentBlockId);
+            return parent.App.Data.List.One(contentBlockId);
         }
 
         #region ContentBlock Definition Entity
@@ -81,16 +85,16 @@ namespace ToSic.Sxc.Blocks
         /// <returns></returns>
         private IBlockIdentifier LoadBlockDefinition(int zoneId, IEntity blockDefinition, ILog log)
         {
-            var appName = blockDefinition.Value<string>(CbPropertyApp) ?? "";
-            IsContentApp = appName == Eav.Constants.DefaultAppName;
+            var appNameId = blockDefinition.Value<string>(CbPropertyApp) ?? "";
+            IsContentApp = appNameId == Eav.Constants.DefaultAppGuid;
             var temp = blockDefinition.Value<string>(CbPropertyContentGroup) ?? "";
             Guid.TryParse(temp, out var contentGroupGuid);
 
             temp = blockDefinition.Value<string>(ViewParts.TemplateContentType) ?? "";
             Guid.TryParse(temp, out var previewTemplateGuid);
 
-            var appId = new ZoneRuntime().Init(zoneId, log).FindAppId(appName);
-            return new BlockIdentifier(zoneId, appId, contentGroupGuid, previewTemplateGuid);
+            var appId = _appFinderLazy.Value.FindAppId(zoneId, appNameId);
+            return new BlockIdentifier(zoneId, appId, appNameId, contentGroupGuid, previewTemplateGuid);
         }
         #endregion
 

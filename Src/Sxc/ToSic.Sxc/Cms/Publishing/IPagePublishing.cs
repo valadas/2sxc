@@ -1,15 +1,15 @@
 ﻿using System;
 using ToSic.Eav.Apps.Environment;
 using ToSic.Eav.Context;
-using ToSic.Eav.Documentation;
-using ToSic.Eav.Logging;
+using ToSic.Lib.Documentation;
+using ToSic.Lib.Logging;
 
 
 namespace ToSic.Sxc.Cms.Publishing
 {
     // Note: maybe some day this should go into a .Cms namespace
     [PrivateApi]
-    public interface IPagePublishing: IHasLog<IPagePublishing>
+    public interface IPagePublishing: IHasLog
     {
         /// <summary>
         /// Wraps an action and performs pre/post processing related to versioning of the environment.

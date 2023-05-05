@@ -7,3 +7,16 @@
 Src/Mvc/Website/wwwroot/adam/Blog App/*
 bin/
 Src/Integration/SxcEdit01/wwwroot/adam/*
+
+# 2sxc assets
+/Src/Oqtane/ToSic.Sxc.Oqt.Server/2sxc
+/Src/Oqtane/ToSic.Sxc.Oqt.Server/Content
+/Src/Oqtane/ToSic.Sxc.Oqt.Server/wwwroot/Modules/ToSic.Sxc/assets
+/Src/Oqtane/ToSic.Sxc.Oqt.Server/wwwroot/Modules/ToSic.Sxc/dist
+/Src/Oqtane/ToSic.Sxc.Oqt.Server/wwwroot/Modules/ToSic.Sxc/js
+/Src/Oqtane/ToSic.Sxc.Oqt.Server/wwwroot/Modules/ToSic.Sxc/system
+/Src/Oqtane/ToSic.Sxc.Oqt.Server/wwwroot/Modules/ToSic.Sxc.Oqtane/assets
+/Src/Oqtane/ToSic.Sxc.Oqt.Server/wwwroot/Modules/ToSic.Sxc.Oqtane/dist
+/Src/Oqtane/ToSic.Sxc.Oqt.Server/wwwroot/Modules/ToSic.Sxc.Oqtane/js
+/Src/Oqtane/ToSic.Sxc.Oqt.Server/wwwroot/Modules/ToSic.Sxc.Oqtane/system
+*.lutconfig

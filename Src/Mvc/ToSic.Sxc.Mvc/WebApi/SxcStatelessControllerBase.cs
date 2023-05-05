@@ -1,8 +1,7 @@
 ﻿using System;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.Mvc;
-using ToSic.Eav.Logging;
-using ToSic.Eav.Logging.Simple;
+using ToSic.Lib.Logging;
 using ToSic.Sxc.Blocks;
 
 namespace ToSic.Sxc.Mvc.WebApi
@@ -15,7 +14,7 @@ namespace ToSic.Sxc.Mvc.WebApi
             // todo: redesign so it works - in .net core the HttpContext isn't ready in the constructor
             Log = new Log(HistoryLogName, null, $"Path: {HttpContext?.Request.GetDisplayUrl()}");
             //TimerWrapLog = Log.Call(message: "timer", useTimer: true);
-            History.Add(HistoryLogGroup, Log);
+            GetService<LogHistory>().Add(HistoryLogGroup, Log);
             // register for dispose / stopping the timer at the end
             _logWrapper = new LogWrapper(Log);
             // todo: get this to work
@@ -55,9 +54,9 @@ namespace ToSic.Sxc.Mvc.WebApi
 
     internal class LogWrapper: IDisposable
     {
-        private readonly Action<string> _timerWrapLog;
+        private readonly LogCall _timerWrapLog;
 
-        internal LogWrapper(ILog log) => _timerWrapLog = log.Call(message: "timer", useTimer: true);
-        public void Dispose() => _timerWrapLog(null);
+        internal LogWrapper(ILog log) => _timerWrapLog = log.Fn(message: "timer", startTimer: true);
+        public void Dispose() => _timerWrapLog.Done();
     }
 }

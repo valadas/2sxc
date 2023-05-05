@@ -1,25 +1,26 @@
 ﻿using ToSic.Eav.Apps;
 using ToSic.Eav.Context;
-using ToSic.Eav.Logging;
-using ToSic.Eav.LookUp;
-using ToSic.Eav.Run;
+using ToSic.Lib.Logging;
+using ToSic.Lib.Services;
 using ToSic.Sxc.LookUp;
 using IApp = ToSic.Sxc.Apps.IApp;
 
 namespace ToSic.Sxc.WebApi.ImportExport
 {
-    public class ImpExpHelpers: HasLog<ImpExpHelpers>
+    public class ImpExpHelpers: ServiceBase
     {
-        private readonly Apps.App _unInitializedApp;
-        private readonly AppConfigDelegate _configProvider;
-
         #region Constructor / DI
 
         public ImpExpHelpers(Apps.App unInitializedApp, AppConfigDelegate configProvider) : base("Sxc.ImExHl")
         {
-            _unInitializedApp = unInitializedApp;
-            _configProvider = configProvider.Init(Log);
+            ConnectServices(
+                _unInitializedApp = unInitializedApp,
+                _configProvider = configProvider
+            );
         }
+        private readonly Apps.App _unInitializedApp;
+        private readonly AppConfigDelegate _configProvider;
+
 
         #endregion
         /// <summary>
@@ -28,16 +29,15 @@ namespace ToSic.Sxc.WebApi.ImportExport
         /// <returns></returns>
         internal IApp GetAppAndCheckZoneSwitchPermissions(int zoneId, int appId, IUser user, int contextZoneId)
         {
-            var wrapLog = Log.Call<IApp>($"superuser: {user.IsSuperUser}");
-            if (!user.IsSuperUser && zoneId != contextZoneId)
+            var wrapLog = Log.Fn<IApp>($"superuser: {user.IsSystemAdmin}");
+            if (!user.IsSystemAdmin && zoneId != contextZoneId)
             {
-                wrapLog("error", null);
+                wrapLog.ReturnNull("error");
                 throw Eav.WebApi.Errors.HttpException.PermissionDenied("Tried to access app from another zone. Requires SuperUser permissions.");
             }
 
-            var app = _unInitializedApp.Init(new AppIdentity(zoneId, appId),
-                _configProvider.Build(true/*, new LookUpEngine(Log)*/), Log);
-            return wrapLog(null, app);
+            var app = _unInitializedApp.Init(new AppIdentity(zoneId, appId), _configProvider.Build());
+            return wrapLog.Return(app);
         }
 
     }

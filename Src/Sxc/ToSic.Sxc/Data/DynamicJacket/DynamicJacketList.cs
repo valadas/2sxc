@@ -1,7 +1,11 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
-using Newtonsoft.Json.Linq;
-using ToSic.Eav.Documentation;
+using System.Text.Json.Nodes;
+using ToSic.Eav.Data.Debug;
+using ToSic.Eav.Data.PropertyLookup;
+using ToSic.Lib.Documentation;
+using ToSic.Lib.Logging;
 
 namespace ToSic.Sxc.Data
 {
@@ -9,24 +13,67 @@ namespace ToSic.Sxc.Data
     /// This is a DynamicJacket for JSON arrays. You can enumerate through it. 
     /// </summary>
     [InternalApi_DoNotUse_MayChangeWithoutNotice("just use the objects from AsDynamic, don't use this directly")]
-    public class DynamicJacketList : DynamicJacketBase<JArray>, IReadOnlyList<object>
+    public class DynamicJacketList : DynamicJacketBase<JsonArray>, IReadOnlyList<object>
     {
         /// <inheritdoc />
-        public DynamicJacketList(JArray originalData) :base(originalData) { }
+        public DynamicJacketList(JsonArray originalData) :base(originalData) { }
 
         /// <inheritdoc />
         public override bool IsList => true;
 
-        /// <inheritdoc />
+        [PrivateApi]
         public override IEnumerator<object> GetEnumerator() 
-            => UnwrappedContents.Select(DynamicJacket.WrapOrUnwrap).GetEnumerator();
+            => UnwrappedContents.Select(DynamicJacket.WrapIfJObjectUnwrapIfJValue).GetEnumerator();
 
         /// <summary>
         /// Access the items in this object - but only if the underlying object is an array. 
         /// </summary>
         /// <param name="index">array index</param>
         /// <returns>the item or an error if not found</returns>
-        public override object this[int index] => DynamicJacket.WrapOrUnwrap(UnwrappedContents[index]);
+        public override object this[int index] => DynamicJacket.WrapIfJObjectUnwrapIfJValue(UnwrappedContents[index]);
+
+        [PrivateApi("internal")]
+        public override List<PropertyDumpItem> _Dump(PropReqSpecs specs, string path) 
+            => new List<PropertyDumpItem> { new PropertyDumpItem { Path = "Not supported on DynamicJacket" } };
+
+        /// <summary>
+        /// On a dynamic Jacket List where is no reasonable convention how to find something by name
+        /// since it's not clear which property would be the name-giving property. 
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="comparison"></param>
+        /// <param name="parentLogOrNull"></param>
+        /// <returns></returns>
+        protected override object FindValueOrNull(string name, StringComparison comparison, ILog parentLogOrNull)
+        {
+            if (UnwrappedContents == null || !UnwrappedContents.Any())
+                return null;
+
+            var found = UnwrappedContents.FirstOrDefault(p =>
+                {
+                    if (!(p is JsonObject pJObject))
+                        return false;
+
+                    if (HasPropertyWithValue(pJObject, "Name", name, comparison))
+                        return true;
+
+                    if (HasPropertyWithValue(pJObject, "Title", name, comparison))
+                        return true;
+
+                    return false;
+                });
+
+            return DynamicJacket.WrapIfJObjectUnwrapIfJValue(found);
+        }
+
+        private bool HasPropertyWithValue(JsonObject obj, string propertyName, string value, StringComparison comparison)
+        {
+            if (obj.TryGetPropertyValue(propertyName, out var propertyValue) && propertyValue is JsonValue jValResult && jValResult.TryGetValue<string>(out var stringValue))
+                return string.Equals(stringValue, value, comparison);
+
+            return false;
+
+        }
 
     }
 }

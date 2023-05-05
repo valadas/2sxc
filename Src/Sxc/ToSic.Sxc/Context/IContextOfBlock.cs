@@ -1,9 +1,10 @@
 ﻿using ToSic.Eav.Context;
 using ToSic.Sxc.Cms.Publishing;
+using ToSic.Sxc.Web.PageService;
 
 namespace ToSic.Sxc.Context
 {
-    public interface IContextOfBlock: IContextOfSite, IContextOfApp
+    public interface IContextOfBlock: IContextOfApp
     {
         /// <summary>
         /// The page it's running on + parameters for queries, url etc.
@@ -18,6 +19,12 @@ namespace ToSic.Sxc.Context
         /// <summary>
         /// Publishing information about the current context
         /// </summary>
-        BlockPublishingState Publishing { get; }
+        BlockPublishingSettings Publishing { get; }
+
+        /// <summary>
+        /// WIP
+        /// </summary>
+        PageServiceShared PageServiceShared { get; }
+
     }
 }

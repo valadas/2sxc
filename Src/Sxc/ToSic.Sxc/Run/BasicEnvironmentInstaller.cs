@@ -1,24 +1,18 @@
-﻿using ToSic.Eav;
-using ToSic.Eav.Context;
-using ToSic.Eav.Logging;
+﻿using ToSic.Eav.Context;
+using ToSic.Lib.Logging;
 using ToSic.Eav.Run;
+using ToSic.Eav.Run.Unknown;
+using ToSic.Lib.Services;
 using ToSic.Sxc.Context;
 
 
 namespace ToSic.Sxc.Run
 {
-    public class BasicEnvironmentInstaller: HasLog, IEnvironmentInstaller
+    public class BasicEnvironmentInstaller: ServiceBase, IEnvironmentInstaller, IIsUnknown, IPlatformAppInstaller
     {
-        public BasicEnvironmentInstaller() : base($"{LogNames.NotImplemented}.Instll")
+        public BasicEnvironmentInstaller(WarnUseOfUnknown<BasicEnvironmentInstaller> _) : base($"{LogScopes.NotImplemented}.Instll")
         {
         }
-
-        public IEnvironmentInstaller Init(ILog parent)
-        {
-            Log.LinkTo(parent);
-            return this;
-        }
-
 
         public string UpgradeMessages()
         {
@@ -29,7 +23,6 @@ namespace ToSic.Sxc.Run
         public bool ResumeAbortedUpgrade()
         {
             // don't do anything for now
-            // throw new NotImplementedException();
             return true;
         }
 

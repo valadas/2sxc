@@ -1,32 +1,25 @@
-﻿using System;
-using ToSic.Eav;
+﻿using ToSic.Eav.Plumbing;
+using ToSic.Lib.DI;
+using ToSic.Lib.Services;
 using ToSic.Sxc.Blocks;
 
 namespace ToSic.Sxc.Engines
 {
-    internal class EngineFactory
+    public class EngineFactory: ServiceBase
     {
-        public enum EngineType
+
+        public EngineFactory(Generator<IRazorEngine> razorEngineGen, Generator<TokenEngine> tokenEngineGen): base($"{Constants.SxcLogName}.EngFct")
         {
-            Token = 0,
-            Razor = 1
+            ConnectServices(
+                _razorEngineGen = razorEngineGen,
+                _tokenEngineGen = tokenEngineGen
+            );
         }
+        private readonly Generator<IRazorEngine> _razorEngineGen;
+        private readonly Generator<TokenEngine> _tokenEngineGen;
 
-        public static IEngine CreateEngine(IView view)
-        {
-            var engineType = view.IsRazor ? RazorEngine : typeof(TokenEngine);
-            
-            if (engineType == null)
-                throw new Exception("Error: Could not find the template engine to parse this template.");
-
-            return Factory.Resolve(engineType) as IEngine;
-        }
-
-        /// <summary>
-        /// Look up the engine once in the whole application lifecycle, then re-use
-        /// </summary>
-        private static Type RazorEngine => _razorEngine ?? (_razorEngine = Factory.StaticBuild<IEngineFinder>().RazorEngineType());
-        private static Type _razorEngine;
-
+        public IEngine CreateEngine(IView view) => view.IsRazor
+            ? (IEngine)_razorEngineGen.New()
+            : _tokenEngineGen.New();
     }
 }

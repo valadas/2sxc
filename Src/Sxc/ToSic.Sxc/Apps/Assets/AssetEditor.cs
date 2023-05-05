@@ -1,118 +1,79 @@
 ﻿using System;
 using System.IO;
 using System.Text.RegularExpressions;
-using ToSic.Eav;
-using ToSic.Eav.Logging;
-using ToSic.Eav.Plumbing;
+using ToSic.Eav.Apps;
+using ToSic.Eav.Apps.Parts;
+using ToSic.Eav.Apps.Paths;
+using ToSic.Eav.Context;
+using ToSic.Lib.DI;
+using ToSic.Lib.Services;
+using ToSic.Sxc.Apps.Paths;
 using ToSic.Sxc.Blocks;
-using ToSic.Sxc.Engines;
+// ReSharper disable ConvertToNullCoalescingCompoundAssignment
 
 namespace ToSic.Sxc.Apps.Assets
 {
-    public class AssetEditor : HasLog
+    public class AssetEditor : ServiceBase
     {
         #region Constructor / DI
 
-        public AssetEditInfo EditInfo { get; set; }
+        private AssetEditInfo EditInfo { get; set; }
 
-        private bool _userIsSuperUser;
-        private bool _userIsAdmin;
-        private readonly Lazy<CmsRuntime> _cmsRuntimeLazy;
+        private readonly LazySvc<CmsRuntime> _cmsRuntimeLazy;
+        private readonly IUser _user;
+        private readonly LazySvc<AppFolderInitializer> _appFolderInitializer;
+        private readonly ISite _site;
+        private readonly AppPaths _appPaths;
         private CmsRuntime _cmsRuntime;
-        private IApp _app;
+        private AppState _appState;
 
-        public AssetEditor(Lazy<CmsRuntime> cmsRuntimeLazy) : base("Sxc.AstEdt")
+        public AssetEditor(LazySvc<CmsRuntime> cmsRuntimeLazy, IUser user, LazySvc<AppFolderInitializer> appFolderInitializer, ISite site, AppPaths appPaths) : base("Sxc.AstEdt")
         {
-            _cmsRuntimeLazy = cmsRuntimeLazy;
+            ConnectServices(
+                _cmsRuntimeLazy = cmsRuntimeLazy,
+                _user = user,
+                _appFolderInitializer = appFolderInitializer,
+                _site = site,
+                _appPaths = appPaths
+            );
         }
 
-        public AssetEditor Init(IApp app, int templateId, bool isSuperUser, bool isAdmin, ILog parentLog)
+        // TODO: REMOVE THIS once we release v13 #cleanUp EOY 2021
+        // Commented out 2022-12-21 / 2dm
+        //public AssetEditor Init(AppState app, int templateId, ILog parentLog)
+        //{
+        //    InitShared(app, parentLog);
+        //    var view = _cmsRuntime.Views.Get(templateId);
+        //    var t = new AssetEditInfo(_appState.AppId, _appState.Name, view.Path, view.IsShared);
+        //    EditInfo = AddViewDetailsAndTypes(t, view);
+
+        //    return this;
+        //}
+
+        public AssetEditor Init(AppState app, string path, bool global, int viewId)
         {
-            InitShared(app, isSuperUser, isAdmin, parentLog);
-            var template = _cmsRuntime.Views.Get(templateId);
-            EditInfo = TemplateAssetsInfo(template);
+            InitShared(app);
+            EditInfo = new AssetEditInfo(_appState.AppId, _appState.Name, path, global);
+            if (viewId == 0) return this;
+
+            var view = _cmsRuntime.Views.Get(viewId);
+            AddViewDetailsAndTypes(EditInfo, view);
             return this;
         }
 
-        public AssetEditor Init(IApp app, string path, bool isSuperUser, bool isAdmin, bool global, ILog parentLog)
+
+        private void InitShared(AppState app)
         {
-            InitShared(app, isSuperUser, isAdmin, parentLog);
-            EditInfo = new AssetEditInfo(_app.AppId, _app.Name, path, global);
-            return this;
-        }
-
-
-        private void InitShared(IApp app, bool isSuperUser, bool isAdmin, ILog parentLog)
-        {
-            Log.LinkTo(parentLog);
-            _app = app;
-            _userIsSuperUser = isSuperUser;
-            _userIsAdmin = isAdmin;
-
-            // todo: 2dm Views - see if we can get logger to flow
-            _cmsRuntime = _cmsRuntimeLazy.Value.Init(app, true, Log);
+            _appState = app;
+            _appPaths.Init(_site, _appState);
+            _cmsRuntime = _cmsRuntimeLazy.Value.InitQ(_appState/*, true*/);
         }
 
         #endregion
 
-
-
-        public const string TokenHtmlExtension = ".html";
-        public const string DefaultTokenHtmlBody = @"<p>
-    You successfully created your own template.
-    Start editing it by hovering the ""Manage"" button and opening the ""Edit Template"" dialog.
-</p>";
-
-
-        public const string CshtmlExtension = ".cshtml";
-        public const string CodeCshtmlExtension = ".code.cshtml";
         public const string CshtmlPrefix = "_";
 
-        public const string DefaultCshtmlBody = @"@inherits ToSic.Sxc.Dnn.RazorComponent
-
-<div @Edit.TagToolbar(Content)>
-    Put your content here
-</div>";
-
-        public const string DefaultCodeCshtmlBody = @"@inherits ToSic.Sxc.Dnn.RazorComponentCode
-
-@functions {
-  public string Hello() {
-    return ""Hello from inner code"";
-  }
-}
-
-@helper ShowDiv(string message) {
-  <div>@message</div>
-}
-";
-
-        public const string CsExtension = ".cs";
-
-        public const string CsApiFolder = "api";
-
-        public const string CsApiTemplateControllerName = "PleaseRenameController";
-        // copied from the razor tutorial
-        public const string DefaultCsBody = @"using System.Web.Http;		// this enables [HttpGet] and [AllowAnonymous]
-using DotNetNuke.Web.Api;	// this is to verify the AntiForgeryToken
-
-[AllowAnonymous]			// define that all commands can be accessed without a login
-[ValidateAntiForgeryToken]	// protects the API from users not on your site (CSRF protection)
-// Inherit from ToSic...ApiController to get features like App, Data or Dnn - see https://r.2sxc.org/CustomWebApi
-public class " + CsApiTemplateControllerName + @" : ToSic.Sxc.Dnn.ApiController
-{
-
-	[HttpGet]				// [HttpGet] says we're listening to GET requests
-	public string Hello()
-	{
-		return ""Hello from the controller with ValidateAntiForgeryToken in /api"";
-	}
-
-}
-";
-
         public AssetEditInfo EditInfoWithSource
-
         {
             get
             {
@@ -127,12 +88,10 @@ public class " + CsApiTemplateControllerName + @" : ToSic.Sxc.Dnn.ApiController
         public void EnsureUserMayEditAssetOrThrow(string fullPath = null)
         {
             // check super user permissions - then all is allowed
-            if (_userIsSuperUser)
-                return;
+            if (_user.IsSystemAdmin) return;
 
             // ensure current user is admin - this is the minimum of not super-user
-            if (!_userIsAdmin)
-                throw new AccessViolationException("current user may not edit templates, requires admin rights");
+            if (!_user.IsSiteAdmin) throw new AccessViolationException("current user may not edit templates, requires admin rights");
 
             // if not super user, check if razor (not allowed; super user only)
             if (!EditInfo.IsSafe)
@@ -150,30 +109,28 @@ public class " + CsApiTemplateControllerName + @" : ToSic.Sxc.Dnn.ApiController
             if (path.Directory == null)
                 throw new AccessViolationException("path is null");
 
-            if (path.Directory.FullName.IndexOf(_app.PhysicalPath, StringComparison.InvariantCultureIgnoreCase) != 0)
+            if (path.Directory.FullName.IndexOf(_appPaths.PhysicalPath, StringComparison.InvariantCultureIgnoreCase) != 0)
                 throw new AccessViolationException("current user may not edit files outside of the app-scope");
         }
 
-        private AssetEditInfo TemplateAssetsInfo(IView view)
+        private static AssetEditInfo AddViewDetailsAndTypes(AssetEditInfo t, IView view)
         {
-            var t = new AssetEditInfo(_app.AppId, _app.Name, view.Path, view.IsShared)
-            {
-                // Template specific properties, not really available in other files
-                Type = view.Type,
-                Name = view.Name,
-                HasList = view.UseForList,
-                TypeContent = view.ContentType,
-                TypeContentPresentation = view.PresentationType,
-                TypeList = view.HeaderType,
-                TypeListPresentation = view.HeaderPresentationType
-            };
+            // Template specific properties, not really available in other files
+            t.Type = view.Type;
+            t.Name = view.Name;
+            t.HasList = view.UseForList;
+            t.TypeContent = view.ContentType;
+            t.TypeContentPresentation = view.PresentationType;
+            t.TypeList = view.HeaderType;
+            t.TypeListPresentation = view.HeaderPresentationType;
             return t;
         }
 
-        public string InternalPath => Path.Combine(
-            _cmsRuntime.ServiceProvider.Build<TemplateHelpers>().Init(_app, Log)
-                .AppPathRoot(EditInfo.IsShared, PathTypes.PhysFull), EditInfo.FileName);
+        public string InternalPath => _internalPath ?? (_internalPath = NormalizePath(Path.Combine(
+            _appPaths.PhysicalPathSwitch(EditInfo.IsShared), EditInfo.FileName)));
+        private string _internalPath;
 
+        private static string NormalizePath(string path) => Path.GetFullPath(new Uri(path).LocalPath);
 
         /// <summary>
         /// Read / Write the source code of the template file
@@ -187,41 +144,46 @@ public class " + CsApiTemplateControllerName + @" : ToSic.Sxc.Dnn.ApiController
                     return File.ReadAllText(InternalPath);
 
                 throw new FileNotFoundException("could not find file"
-                                                + (_userIsSuperUser
-                                                    ? " for superuser - file tried '" + InternalPath + "'"
-                                                    : "")
-                );
+                                                + (_user.IsSystemAdmin ? $" for superuser - file tried '{InternalPath}'" : ""));
             }
             set
             {
                 EnsureUserMayEditAssetOrThrow(InternalPath);
-
                 if (File.Exists(InternalPath))
                     File.WriteAllText(InternalPath, value);
                 else
                     throw new FileNotFoundException("could not find file"
-                                                    + (_userIsSuperUser
-                                                        ? " for superuser - file tried '" + InternalPath + "'"
-                                                        : "")
-                    );
-
+                                                    + (_user.IsSystemAdmin ? $" for superuser - file tried '{InternalPath}'" : ""));
             }
         }
 
         public bool Create(string contents)
         {
-            // todo: maybe add some security for special dangerous file names like .cs, etc.?
-            EditInfo.FileName = Regex.Replace(EditInfo.FileName, @"[?:\/*""<>|]", "");
-            var absolutePath = InternalPath;
-
             // don't create if it already exits
-            if (File.Exists(absolutePath)) return false;
+            if (SanitizeFileNameAndCheckIfAssetAlreadyExists()) return false;
 
             // ensure the web.config exists (usually missing in the global area)
-            _cmsRuntime.ServiceProvider.Build<TemplateHelpers>().Init(_app, Log)
-                .EnsureTemplateFolderExists(EditInfo.IsShared);
+            _appFolderInitializer.Value.EnsureTemplateFolderExists(_appState, EditInfo.IsShared);
 
-            // check if the folder to it already exists, or create it...
+            var absolutePath = InternalPath;
+
+            EnsureFolders(absolutePath);
+
+            // now create the file
+            CreateAsset(absolutePath, contents);
+
+            return true;
+        }
+
+        private void SanitizeFileName()
+        {
+            // todo: maybe add some security for special dangerous file names like .cs, etc.?
+            EditInfo.FileName = Regex.Replace(EditInfo.FileName, @"[?:\/*""<>|]", "");
+        }
+
+        // check if the folder already exists, or create it...
+        private static void EnsureFolders(string absolutePath)
+        {
             var foundFolder = absolutePath.LastIndexOf("\\", StringComparison.InvariantCulture);
             if (foundFolder > -1)
             {
@@ -230,15 +192,22 @@ public class " + CsApiTemplateControllerName + @" : ToSic.Sxc.Dnn.ApiController
                 if (!Directory.Exists(folderPath))
                     Directory.CreateDirectory(folderPath);
             }
-
-            // now create the file
-            var stream = new StreamWriter(File.Create(absolutePath));
-            stream.Write(contents);
-            stream.Flush();
-            stream.Close();
-
-            return true;
         }
 
+        private static void CreateAsset(string absolutePath, string contents)
+        {
+            using (var stream = new StreamWriter(File.Create(absolutePath)))
+            {
+                stream.Write(contents);
+                stream.Flush();
+                stream.Close();
+            }
+        }
+
+        public bool SanitizeFileNameAndCheckIfAssetAlreadyExists()
+        {
+            SanitizeFileName();
+            return File.Exists(InternalPath);
+        }
     }
 }

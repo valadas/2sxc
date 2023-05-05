@@ -1,37 +1,26 @@
 ﻿using System.Web.Http;
 using DotNetNuke.Security;
 using DotNetNuke.Web.Api;
-using ToSic.Sxc.Dnn.WebApi.Context;
 using ToSic.Sxc.Dnn.WebApi.Logging;
 using ToSic.Sxc.WebApi;
 using ToSic.Sxc.WebApi.Admin;
-using ToSic.Sxc.WebApi.Context;
 
 namespace ToSic.Sxc.Dnn.WebApi.Admin
 {
     /// <summary>
     /// This one supplies portal-wide (or cross-portal) settings / configuration
     /// </summary>
-	[SupportedModules("2sxc,2sxc-app")]
+	[SupportedModules(DnnSupportedModuleNames)]
     [DnnLogExceptions]
     [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.Admin)]
     [ValidateAntiForgeryToken]
-    public class DialogController : SxcApiControllerBase
+    public class DialogController : SxcApiControllerBase<DialogControllerReal>, IDialogController
     {
-        protected override string HistoryLogName => "Api.SysCnt";
+        // IMPORTANT: Uses the Proxy/Real concept - see https://r.2sxc.org/proxy-controllers
 
-        #region Dialog Helpers
-        /// <summary>
-        /// This is the subsystem which delivers the getting-started app-iframe with instructions etc.
-        /// Used to be GET System/DialogSettings
-        /// </summary>
-        /// <param name="appId"></param>
-        /// <returns></returns>
+        public DialogController(): base(DialogControllerReal.LogSuffix) { }
+
         [HttpGet]
-        public DialogContextStandalone Settings(int appId) 
-            => GetService<AdminBackend>().Init(Log).DialogSettings(appId);
-
-        #endregion
-
+        public DialogContextStandaloneDto Settings(int appId) => Real.Settings(appId);
     }
 }

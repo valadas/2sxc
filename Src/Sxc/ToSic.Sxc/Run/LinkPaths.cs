@@ -1,37 +1,41 @@
-﻿#if NET451
+﻿#if NETFRAMEWORK
 using System.Web;
-using System.Web.Hosting;
 #else
 using Microsoft.AspNetCore.Mvc;
-using System.IO;
+using Microsoft.AspNetCore.Http.Extensions;
 #endif
+using System;
+
 
 namespace ToSic.Sxc.Run
 {
     public class LinkPaths: ILinkPaths
     {
-#if NETSTANDARD
+#if !NETFRAMEWORK
         public LinkPaths(IUrlHelper urlHelper) => _urlHelper = urlHelper;
-
         private readonly IUrlHelper _urlHelper;
 #endif
 
-        public string ToAbsolute(string virtualPath)
+        public string AsSeenFromTheDomainRoot(string virtualPath)
         {
-#if NETSTANDARD
-            return _urlHelper.Content(virtualPath);
-#else
+#if NETFRAMEWORK
             return VirtualPathUtility.ToAbsolute(virtualPath);
-#endif
-        }
-        public string ToAbsolute(string virtualPath, string subPath)
-        {
-#if NETSTANDARD
-            return _urlHelper.Content(Path.Combine(virtualPath, subPath));
 #else
-            return VirtualPathUtility.Combine(virtualPath, subPath);
+            return _urlHelper.Content(virtualPath);
 #endif
         }
 
+#if NETFRAMEWORK
+        public string GetCurrentRequestUrl() => HttpContext.Current?.Request?.Url?.AbsoluteUri ?? string.Empty;
+#else
+        public string GetCurrentRequestUrl() => _urlHelper.ActionContext.HttpContext.Request.GetEncodedUrl();
+#endif
+
+#if NETFRAMEWORK
+        public string GetCurrentLinkRoot() => HttpContext.Current?.Request?.Url?.GetLeftPart(UriPartial.Authority) ?? string.Empty;
+#else
+        public string GetCurrentLinkRoot() => new Uri(_urlHelper.ActionContext.HttpContext.Request.GetEncodedUrl()).GetLeftPart(UriPartial.Authority);
+#endif
+
+        }
     }
-}

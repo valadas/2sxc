@@ -1,8 +1,7 @@
 ﻿using System;
 using System.IO;
-using ToSic.Eav;
 using ToSic.Eav.Helpers;
-using ToSic.Eav.Logging;
+using ToSic.Lib.Logging;
 
 namespace ToSic.Sxc.Adam
 {
@@ -15,17 +14,18 @@ namespace ToSic.Sxc.Adam
     {
         #region Constructor / DI / Init
 
-        public AdamFileSystemBasic(IAdamPaths adamPaths) : base(LogNames.Basic)
+        public AdamFileSystemBasic(IAdamPaths adamPaths) : base(LogScopes.Base)
         {
-            _adamPaths = adamPaths;
+            ConnectServices(
+                _adamPaths = adamPaths
+            );
         }
         private readonly IAdamPaths _adamPaths;
 
-        public IAdamFileSystem<string, string> Init(AdamManager<string, string> adamManager, ILog parentLog)
+        public IAdamFileSystem<string, string> Init(AdamManager<string, string> adamManager)
         {
-            Log.LinkTo(parentLog);
             AdamManager = adamManager;
-            _adamPaths.Init(adamManager, Log);
+            _adamPaths.Init(adamManager);
             return this;
         }
 
@@ -58,15 +58,14 @@ namespace ToSic.Sxc.Adam
         /// <returns></returns>
         public string FindUniqueFileName(IFolder parentFolder, string fileName)
         {
-            var callLog = Log.Call<string>($"..., {fileName}");
+            var callLog = Log.Fn<string>($"..., {fileName}");
 
-            var folder = parentFolder;
             var name = Path.GetFileNameWithoutExtension(fileName);
             var ext = Path.GetExtension(fileName);
-            for (var i = 1; i < MaxSameFileRetries && File.Exists(_adamPaths.PhysicalPath(Path.Combine(folder.Path, Path.GetFileName(fileName)))); i++)
+            for (var i = 1; i < MaxSameFileRetries && File.Exists(_adamPaths.PhysicalPath(Path.Combine(parentFolder.Path, Path.GetFileName(fileName)))); i++)
                 fileName = $"{name}-{i}{ext}";
-
-            return callLog(fileName, fileName);
+            
+            return callLog.ReturnAndLog(fileName);
         }
 
 

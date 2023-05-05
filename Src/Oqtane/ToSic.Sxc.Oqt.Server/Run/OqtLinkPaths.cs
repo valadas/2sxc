@@ -1,23 +1,23 @@
-﻿using System.IO;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Extensions;
 using ToSic.Eav.Helpers;
-using ToSic.Sxc.Oqt.Server.Adam;
+using ToSic.Sxc.Oqt.Server.Plumbing;
 using ToSic.Sxc.Run;
+using OqtPageOutput = ToSic.Sxc.Oqt.Server.Blocks.Output.OqtPageOutput;
 
 
 namespace ToSic.Sxc.Oqt.Server.Run
 {
     public class OqtLinkPaths: ILinkPaths
     {
-        public OqtLinkPaths(IHttpContextAccessor contextAccessor, IWebHostEnvironment hostingEnvironment)
+        public OqtLinkPaths(IHttpContextAccessor contextAccessor, SiteStateInitializer siteStateInitializer)
         {
             _contextAccessor = contextAccessor;
-            _hostingEnvironment = hostingEnvironment;
+            _siteStateInitializer = siteStateInitializer;
         }
 
         private readonly IHttpContextAccessor _contextAccessor;
-        private readonly IWebHostEnvironment _hostingEnvironment;
+        private readonly SiteStateInitializer _siteStateInitializer;
         public HttpContext Current => _contextAccessor.HttpContext;
 
         #region Paths
@@ -26,21 +26,33 @@ namespace ToSic.Sxc.Oqt.Server.Run
         private string toWebAbsolute(string virtualPath)
         {
             virtualPath = virtualPath.TrimStart('~');
-            //if (!virtualPath.StartsWith('/') && !virtualPath.StartsWith('\\'))
-            //    virtualPath = "/" + virtualPath;
-            return virtualPath.PrefixSlash().Forwardslash();
+            return virtualPath.PrefixSlash().ForwardSlash();
         }
 
-        public string ToAbsolute(string virtualPath)
+        public string AsSeenFromTheDomainRoot(string virtualPath) => toWebAbsolute(virtualPath);
+
+        public string ApiFromSiteRoot(string appFolder, string apiPath) => $"/app/{appFolder}/{apiPath}";
+
+        public string AppFromTheDomainRoot(string appFolder, string pagePath)
         {
-            return toWebAbsolute(virtualPath);
-        }
-        public string ToAbsolute(string virtualPath, string subPath)
-        {
-            return toWebAbsolute(Path.Combine(virtualPath, subPath));
+            var siteRoot = OqtPageOutput.GetSiteRoot(_siteStateInitializer.InitializedState).TrimLastSlash();
+            return AppFromTheDomainRoot(siteRoot, appFolder, pagePath);
         }
 
+        public string AppFromTheDomainRoot(string siteRoot, string appFolder, string pagePath) => $"{siteRoot}/app/{appFolder}/{pagePath}";
 
         #endregion
+
+        public string GetCurrentRequestUrl() => _contextAccessor.HttpContext?.Request?.GetEncodedUrl() ?? string.Empty;
+
+        public string GetCurrentLinkRoot()
+        {
+            var scheme = _contextAccessor?.HttpContext?.Request?.Scheme ?? "http";
+            var alias = _siteStateInitializer.InitializedState.Alias;
+            var domainName = string.IsNullOrEmpty(alias.Path)
+                ? alias.Name
+                : alias.Name.Substring(0, alias.Name.Length - alias.Path.Length - 1);
+            return $"{scheme}://{domainName}";
+        }
     }
 }

@@ -1,5 +1,7 @@
-﻿using System;
+﻿#if NETFRAMEWORK
+using System;
 using ToSic.Eav.Data;
+using ToSic.Eav.DataSource;
 using ToSic.Eav.DataSources;
 using ToSic.Eav.LookUp;
 using ToSic.Sxc.Apps;
@@ -19,8 +21,6 @@ namespace ToSic.SexyContent
         IApp App { get; }
         IBlockDataSource Data { get; }
 
-        //SxcHelper Sxc { get; }
-
         /// <summary>
         /// Transform a IEntity to a DynamicEntity as dynamic object
         /// </summary>
@@ -34,39 +34,25 @@ namespace ToSic.SexyContent
         /// </summary>
         /// <param name="dynamicEntity"></param>
         /// <returns></returns>
-        dynamic AsDynamic(dynamic dynamicEntity);
-
-
-        ///// <summary>
-        ///// In case AsDynamic is used with Data["name"]
-        ///// </summary>
-        ///// <returns></returns>
-        //IEnumerable<dynamic> AsDynamic(IDataStream stream);
+        dynamic AsDynamic(object dynamicEntity);
 
         /// <summary>
         /// Transform a DynamicEntity dynamic object back to a IEntity instance
         /// </summary>
         /// <param name="dynamicEntity"></param>
         /// <returns></returns>
-        IEntity AsEntity(dynamic dynamicEntity);
-
-        ///// <summary>
-        ///// Returns a list of DynamicEntities
-        ///// </summary>
-        ///// <param name="entities">List of entities</param>
-        ///// <returns></returns>
-        //IEnumerable<dynamic> AsDynamic(IEnumerable<IEntity> entities);
-
+        IEntity AsEntity(object dynamicEntity);
 
         #region Create Data Sources
         /// <summary>
         /// Create a source with initial stream to attach...
         /// </summary>
         /// <returns></returns>
-        T CreateSource<T>(IDataStream inStream) where T : IDataSource;
-        IDataSource CreateSource(string typeName = "", IDataSource inSource = null, ILookUpEngine lookUpEngine = null);
-        T CreateSource<T>(IDataSource inSource = null, ILookUpEngine configurationProvider = null) where T : IDataSource;
+        T CreateSource<T>(IDataStream source) where T : IDataSource;
+        IDataSource CreateSource(string typeName = "", IDataSource inSource = null, ILookUpEngine configurationProvider = null);
+        T CreateSource<T>(IDataSource inSource = null, ILookUpEngine configurationProvider = default) where T : IDataSource;
         #endregion
 
     }
 }
+#endif

@@ -1,14 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using ToSic.Eav.Apps;
 using ToSic.Eav.Apps.Parts;
 using ToSic.Eav.Data;
+using ToSic.Lib.Logging;
 using ToSic.Sxc.Apps.Blocks;
 using ToSic.Sxc.Blocks;
 
 namespace ToSic.Sxc.Apps
 {
-	public class BlocksManager: PartOf<CmsManager, BlocksManager>
+	public class BlocksManager: PartOf<CmsManager>
 	{
         public BlocksManager() : base("CG.Manage") { }
 
@@ -18,19 +20,19 @@ namespace ToSic.Sxc.Apps
 
 		    if (!blockConfiguration.Exists)
 		    {
-		        Log.Add($"doesn't exist, will create new CG with template#{templateId}");
+		        Log.A($"doesn't exist, will create new CG with template#{templateId}");
 		        return appMan.Entities.Create(BlocksRuntime.BlockTypeName, new Dictionary<string, object>
 		        {
 		            {ViewParts.TemplateContentType, new List<int> {templateId}},
 		            {ViewParts.Content, new List<int>()},
 		            {ViewParts.Presentation, new List<int>()},
-		            {ViewParts.ListContent, new List<int>()},
-		            {ViewParts.ListPresentation, new List<int>()}
-		        }).Item2; // new guid
+		            {ViewParts.FieldHeader, new List<int>()},
+		            {ViewParts.FieldHeaderPresentation, new List<int>()}
+		        }).EntityGuid; // new guid
 		    }
 		    else
 		    {
-		        Log.Add($"exists, create for group#{blockConfiguration.Guid} with template#{templateId}");
+		        Log.A($"exists, create for group#{blockConfiguration.Guid} with template#{templateId}");
 		        appMan.Entities.UpdateParts(blockConfiguration.Entity.EntityId,
 		            new Dictionary<string, object> {{ ViewParts.TemplateContentType, new List<int?> {templateId}}});
 
@@ -38,30 +40,37 @@ namespace ToSic.Sxc.Apps
 		    }
 		}
 
-        public void AddEmptyItem(BlockConfiguration block, int? sortOrder, bool forceDraft) =>
-            Parent.Entities.FieldListUpdate(block.Entity, ViewParts.ContentPair, forceDraft,
-                lists => lists.Add(sortOrder, new int?[] { null, null }));
-
-
-
-        public int NewBlockReference(int parentId, string field, int sortOrder, string app = "", Guid? guid = null)
+        public void AddEmptyItem(BlockConfiguration block, int? index, bool forceDraft)
         {
-            Log.Add($"get CB parent:{parentId}, field:{field}, order:{sortOrder}, app:{app}, guid:{guid}");
-            var contentTypeName = Settings.AttributeSetStaticNameContentBlockTypeName;
+            Parent.Entities.FieldListUpdate(block.Entity, ViewParts.ContentPair, forceDraft,
+                lists =>
+                {
+                    // hitting (+) if the list is empty add two demo items (because we already see one demo item)
+                    if (lists.Lists.First().Value.Count == 0) // on non, add 2 null items
+                        lists.Add(0, new int?[] {null, null});
+                    return lists.Add(index, new int?[] {null, null});
+                });
+        }
+
+
+        public int NewBlockReference(int parentId, string field, int index, string app = "", Guid? guid = null)
+        {
+            Log.A($"get CB parent:{parentId}, field:{field}, order:{index}, app:{app}, guid:{guid}");
+            var contentTypeName = AppConstants.ContentGroupRefTypeName;
             var values = new Dictionary<string, object>
             {
                 {BlockFromEntity.CbPropertyTitle, ""},
                 {BlockFromEntity.CbPropertyApp, app},
             };
             var newGuid = guid ?? Guid.NewGuid();
-            var entityId = CreateItemAndAddToList(parentId, field, sortOrder, contentTypeName, values, newGuid);
+            var entityId = CreateItemAndAddToList(parentId, field, index, contentTypeName, values, newGuid);
 
             return entityId;
         }
 
-        private int CreateItemAndAddToList(int parentId, string field, int index, string typeName, Dictionary<string, object> values, Guid newGuid)
+        private int CreateItemAndAddToList(int parentId, string field, int index, string typeName, Dictionary<string, object> values, Guid newGuid
+        ) => Log.Func($"{nameof(parentId)}:{parentId}, {nameof(field)}:{field}, {nameof(index)}, {index}, {nameof(typeName)}:{typeName}", () =>
         {
-            var callLog = Log.Call<int>($"{nameof(parentId)}:{parentId}, {nameof(field)}:{field}, {nameof(index)}, {index}, {nameof(typeName)}:{typeName}");
             // create the new entity 
             var entityId = Parent.Entities.GetOrCreate(newGuid, typeName, values);
 
@@ -81,8 +90,8 @@ namespace ToSic.Sxc.Apps
             Parent.Entities.UpdateParts(cbEnt.EntityId, updateDic);
             #endregion
 
-            return callLog($"{entityId}", entityId);
-        }
+            return entityId;
+        });
 
 
     }

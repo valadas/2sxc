@@ -1,77 +1,54 @@
-﻿using System.Net;
+﻿using DotNetNuke.Security;
+using DotNetNuke.Web.Api;
 using System.Net.Http;
 using System.Web.Http;
-using DotNetNuke.Security;
-using DotNetNuke.Web.Api;
-using ToSic.Sxc.Dnn.Run;
-using ToSic.Sxc.Run;
-using ToSic.Sxc.WebApi.ImportExport;
+using ToSic.Eav.WebApi.Plumbing;
+using ToSic.Eav.WebApi.Sys;
+using ToSic.Sxc.Context;
+using ToSic.Sxc.Dnn.Context;
+using ToSic.Sxc.WebApi.Sys;
 
 namespace ToSic.Sxc.Dnn.WebApi.Sys
 {
-    public class InstallController : DnnApiControllerWithFixes
+    public class InstallController : DnnApiControllerWithFixes<InstallControllerReal<HttpResponseMessage>>, IInstallController<HttpResponseMessage>
     {
-        protected override string HistoryLogName => "Api.Install";
+        public InstallController() : base(InstallControllerReal<HttpResponseMessage>.LogSuffix) { }
 
         /// <summary>
         /// Make sure that these requests don't land in the normal api-log.
         /// Otherwise each log-access would re-number what item we're looking at
         /// </summary>
-        protected override string HistoryLogGroup { get; } = "web-api.install";
+        protected override string HistoryLogGroup => "web-api.install";
 
-        #region System Installation
 
-        /// <summary>
-        /// Finish system installation which had somehow been interrupted
-        /// </summary>
-        /// <returns></returns>
+        /// <inheritdoc />
         [HttpGet]
         [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.Host)]
-        public bool Resume() => GetService<IEnvironmentInstaller>().ResumeAbortedUpgrade();
+        public bool Resume() => Real.Resume();
 
-        #endregion
+        private void PrepareResponseMaker()
+        {
+            // Make sure the Scoped ResponseMaker has this controller context
+            var responseMaker = (ResponseMakerNetFramework)GetService<ResponseMaker<HttpResponseMessage>>();
+            responseMaker.Init(this);
+        }
 
-
-        #region App / Content Package Installation
-
-        /// <summary>
-        /// Before this was GET Module/RemoteInstallDialogUrl 
-        /// </summary>
-        /// <param name="isContentApp"></param>
-        /// <returns></returns>
+        /// <inheritdoc />
         [HttpGet]
         [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.Admin)]
-        public string RemoteWizardUrl(bool isContentApp) =>
-            GetService<IEnvironmentInstaller>().Init(Log)
-                .GetAutoInstallPackagesUiUrl(
-                    new DnnSite(),
-                    GetService<DnnModule>().Init(Request.FindModuleInfo(), Log), 
-                    isContentApp);
+        public InstallAppsDto InstallSettings(bool isContentApp) 
+            => Real.InstallSettings(isContentApp, ((DnnModule) GetService<IModule>()).Init(Request.FindModuleInfo()));
 
 
-        /// <summary>
-        /// Before this was GET Installer/InstallPackage
-        /// </summary>
-        /// <param name="packageUrl"></param>
-        /// <returns></returns>
+        /// <inheritdoc />
         [HttpPost]
         [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.Admin)]
         [ValidateAntiForgeryToken] // now activate this, as it's post now, previously not, because this is a GET and can't include the RVT
         public HttpResponseMessage RemotePackage(string packageUrl)
         {
             PreventServerTimeout300();
-
-            Log.Add("install package:" + packageUrl);
-            var container = GetService<DnnModule>().Init(ActiveModule, Log);
-            var block = container.BlockIdentifier;
-
-            var result = GetService<ImportFromRemote>().Init(new DnnUser(), Log)
-                .InstallPackage(block.ZoneId, block.AppId, ActiveModule.DesktopModule.ModuleName == "2sxc-app", packageUrl);
-
-            Log.Add("install completed with success:" + result.Item1);
-            return Request.CreateResponse(result.Item1 ? HttpStatusCode.OK : HttpStatusCode.InternalServerError, new { result.Item1, result.Item2 });
+            PrepareResponseMaker();
+            return Real.RemotePackage(packageUrl, ((DnnModule)GetService<IModule>()).Init(ActiveModule));
         }
-
-        #endregion
     }
 }

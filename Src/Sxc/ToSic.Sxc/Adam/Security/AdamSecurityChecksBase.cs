@@ -2,25 +2,41 @@
 using System.Collections.Generic;
 using System.Linq;
 using ToSic.Eav.Apps.Security;
-using ToSic.Eav.Logging;
-using ToSic.Eav.Plumbing;
+using ToSic.Eav.Data;
+using ToSic.Lib.Logging;
 using ToSic.Eav.Security;
 using ToSic.Eav.Security.Files;
 using ToSic.Eav.Security.Permissions;
 using ToSic.Eav.WebApi.Errors;
+using ToSic.Lib.DI;
+using ToSic.Lib.Services;
 
 namespace ToSic.Sxc.Adam
 {
-    public abstract class AdamSecurityChecksBase: HasLog
+    public abstract class AdamSecurityChecksBase: ServiceBase<AdamSecurityChecksBase.MyServices>
     {
+
         #region DI / Constructor
 
-        protected AdamSecurityChecksBase(string logPrefix) : base($"{logPrefix}.TnScCk") { }
-
-        internal AdamSecurityChecksBase Init(AdamContext adamContext, bool usePortalRoot, ILog parentLog)
+        public class MyServices: MyServicesBase
         {
-            Log.LinkTo(parentLog);
-            var callLog = Log.Call<AdamSecurityChecksBase>();
+            public Generator<AppPermissionCheck> AppPermissionChecks { get; }
+
+            public MyServices(Generator<AppPermissionCheck> appPermissionChecks)
+            {
+                ConnectServices(
+                    AppPermissionChecks = appPermissionChecks
+                );
+            }
+        }
+
+        protected AdamSecurityChecksBase(MyServices services, string logPrefix) : base(services, $"{logPrefix}.TnScCk")
+        {
+        }
+
+        internal AdamSecurityChecksBase Init(AdamContext adamContext, bool usePortalRoot)
+        {
+            var callLog = Log.Fn<AdamSecurityChecksBase>();
             AdamContext = adamContext;
 
             var firstChecker = AdamContext.Permissions.PermissionCheckers.First().Value;
@@ -32,9 +48,9 @@ namespace ToSic.Sxc.Adam
                 ? userMayAdminSiteFiles
                 : userMayAdminSomeFiles);
 
-            Log.Add($"adminSome:{userMayAdminSomeFiles}, restricted:{UserIsRestricted}");
+            Log.A($"adminSome:{userMayAdminSomeFiles}, restricted:{UserIsRestricted}");
 
-            return callLog(null, this);
+            return callLog.Return(this);
         }
 
         internal AdamContext AdamContext;
@@ -73,7 +89,7 @@ namespace ToSic.Sxc.Adam
         /// </summary>
         internal bool UserIsNotRestrictedOrItemIsDraft(Guid guid, out HttpExceptionAbstraction exp)
         {
-            Log.Add($"check if user is restricted ({UserIsRestricted}) or if the item '{guid}' is draft");
+            Log.A($"check if user is restricted ({UserIsRestricted}) or if the item '{guid}' is draft");
             exp = null;
             // check that if the user should only see drafts, he doesn't see items of normal data
             if (!UserIsRestricted || FieldPermissionOk(GrantSets.ReadPublished)) return true;
@@ -82,30 +98,32 @@ namespace ToSic.Sxc.Adam
             var itm = AdamContext.AppRuntime.Entities.Get(guid);
             if (!(itm?.IsPublished ?? false)) return true;
 
-            exp = HttpException.PermissionDenied(Log.Add("user is restricted and may not see published, but item exists and is published - not allowed"));
+            const string msg = "User is restricted and may not see published, but item exists and is published - not allowed";
+            Log.A(msg);
+            exp = HttpException.PermissionDenied(msg);
             return false;
         }
 
         internal bool FileTypeIsOkForThisField(out HttpExceptionAbstraction preparedException)
         {
-            var wrapLog = Log.Call<bool>();
+            var wrapLog = Log.Fn<bool>();
             var fieldDef = AdamContext.Attribute;
             bool result;
             // check if this field exists and is actually a file-field or a string (wysiwyg) field
-            if (fieldDef == null || !(fieldDef.Type != Eav.Constants.DataTypeHyperlink ||
-                                      fieldDef.Type != Eav.Constants.DataTypeString))
+            if (fieldDef == null || !(fieldDef.Type != ValueTypes.Hyperlink ||
+                                      fieldDef.Type != ValueTypes.String))
             {
                 preparedException = HttpException.BadRequest("Requested field '" + AdamContext.ItemField + "' type doesn't allow upload");
-                Log.Add($"field type:{fieldDef?.Type} - does not allow upload");
+                Log.A($"field type:{fieldDef?.Type} - does not allow upload");
                 result = false;
             }
             else
             {
-                Log.Add($"field type:{fieldDef.Type}");
+                Log.A($"field type:{fieldDef.Type}");
                 preparedException = null;
                 result = true;
             }
-            return wrapLog(result.ToString(), result);
+            return wrapLog.ReturnAndLog(result);
         }
 
 
@@ -128,8 +146,8 @@ namespace ToSic.Sxc.Adam
         /// </summary>
         public bool FieldPermissionOk(List<Grants> requiredGrant)
         {
-            var fieldPermissions = AdamContext.ServiceProvider.Build<AppPermissionCheck>().ForAttribute(
-                AdamContext.Permissions.Context, AdamContext.Context.AppState, AdamContext.Attribute, Log);
+            var fieldPermissions = Services.AppPermissionChecks.New()
+                .ForAttribute(AdamContext.Permissions.Context, AdamContext.Context.AppState, AdamContext.Attribute);
 
             return fieldPermissions.UserMay(requiredGrant);
         }

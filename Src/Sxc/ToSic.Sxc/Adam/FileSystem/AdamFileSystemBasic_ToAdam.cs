@@ -9,18 +9,19 @@ namespace ToSic.Sxc.Adam
 
         private File<string, string> ToAdamFile(string path)
         {
-            var f = new FileInfo(_adamPaths.PhysicalPath(path));
+            var physicalPath = _adamPaths.PhysicalPath(path);
+            var f = new FileInfo(physicalPath);
             var directoryName = f.Directory.Name;
 
             // todo: unclear if we need both, but we need the url for the compare-if-same-path
             var relativePath = _adamPaths.RelativeFromAdam(path);
-            var relativeUrl = relativePath.Forwardslash();
+            var relativeUrl = relativePath.ForwardSlash();
             return new File<string, string>(AdamManager)
             {
                 FullName = f.Name,
                 Extension = f.Extension.TrimStart('.'),
                 Size = Convert.ToInt32(f.Length),
-                SysId = relativeUrl,// f.Name,
+                SysId = relativeUrl,
                 Folder = directoryName,
                 ParentSysId = relativeUrl.Replace(f.Name, ""),
                 Path = relativePath,
@@ -29,12 +30,14 @@ namespace ToSic.Sxc.Adam
                 Modified = f.LastWriteTime,
                 Name = Path.GetFileNameWithoutExtension(f.Name),
                 Url = _adamPaths.Url(relativeUrl),
+                PhysicalPath = physicalPath,
             };
         }
 
         private Folder<string, string> ToAdamFolder(string path)
         {
-            var f = new DirectoryInfo(_adamPaths.PhysicalPath(path));
+            var physicalPath = _adamPaths.PhysicalPath(path);
+            var f = new DirectoryInfo(physicalPath);
 
             var relativePath = _adamPaths.RelativeFromAdam(path);
             return new Folder<string, string>(AdamManager)
@@ -47,12 +50,13 @@ namespace ToSic.Sxc.Adam
                 Modified = f.LastWriteTime,
 
                 Url = _adamPaths.Url(relativePath),
+                PhysicalPath = physicalPath,
             };
         }
 
         private static string FindParentUrl(string path)
         {
-            var cleanedPath = path.Forwardslash().TrimEnd('/');
+            var cleanedPath = path.ForwardSlash().TrimEnd('/');
             var lastSlash = cleanedPath.LastIndexOf('/');
             return lastSlash == -1 ? "" : cleanedPath.Substring(0, lastSlash);
         }

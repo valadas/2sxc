@@ -1,54 +1,61 @@
 ﻿using ToSic.Eav.Apps;
+using ToSic.Eav.Apps.Paths;
 using ToSic.Eav.Context;
-using ToSic.Sxc.Engines;
+using ToSic.Eav.Data;
+using ToSic.Lib.Services;
 using App = ToSic.Sxc.Apps.App;
+// ReSharper disable ConvertToNullCoalescingCompoundAssignment
 
 namespace ToSic.Sxc.Run
 {
     public abstract class ImportExportEnvironmentBase: Eav.Apps.Run.ImportExportEnvironmentBase
     {
-
         #region constructor / DI
 
-        public class Dependencies
+        public class MyServices: MyServicesBase
         {
+            internal readonly AppPaths AppPaths;
+            internal readonly IAppStates AppStates;
             internal readonly ISite Site;
             internal readonly App NewApp;
-            internal readonly TemplateHelpers TemplateHelpers;
 
-            public Dependencies(ISite site, App newApp, TemplateHelpers templateHelpers)
+            public MyServices(ISite site, App newApp, IAppStates appStates, AppPaths appPaths)
             {
-                Site = site;
-                NewApp = newApp;
-                TemplateHelpers = templateHelpers;
+                ConnectServices(
+                    AppPaths = appPaths,
+                    AppStates = appStates,
+                    Site = site,
+                    NewApp = newApp
+                );
             }
         }
 
-        private readonly Dependencies _dependencies;
 
         /// <summary>
         /// DI Constructor
         /// </summary>
-        protected ImportExportEnvironmentBase(Dependencies dependencies, string logName) : base(dependencies.Site, logName)
+        protected ImportExportEnvironmentBase(MyServices services, string logName) : base(services.Site, services.AppStates, logName)
         {
-            _dependencies = dependencies;
+            _services = services.ConnectServices(Log);
         }
+
+        private readonly MyServices _services;
 
         #endregion
 
-        public override string ModuleVersion => Settings.ModuleVersion;
+        public override string FallbackContentTypeScope => Scopes.Default;
 
-        public override string FallbackContentTypeScope => Settings.AttributeSetScope;
+        public override string TemplatesRoot(int zoneId, int appId) 
+            => AppPaths(zoneId, appId).PhysicalPath;
 
-        public override string TemplatesRoot(int zoneId, int appId)
-        {
-            var app = _dependencies.NewApp.InitNoData(new AppIdentity(zoneId, appId), Log);
+        public override string GlobalTemplatesRoot(int zoneId, int appId) 
+            => AppPaths(zoneId, appId).PhysicalPathShared;
 
-            // Copy all files in 2sexy folder to (portal file system) 2sexy folder
-            var templateRoot = _dependencies.TemplateHelpers.Init(app, Log)
-                .AppPathRoot(false, PathTypes.PhysFull);
-            return templateRoot;
-        }
+        private AppPaths AppPaths(int zoneId, int appId) =>
+            _appPaths ?? (_appPaths =_services.AppPaths.Init(_services.Site,
+                _services.AppStates.Get(new AppIdentity(zoneId, appId))));
+        private AppPaths _appPaths;
+
 
     }
 }

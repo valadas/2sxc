@@ -1,57 +1,43 @@
-﻿using System;
-using ToSic.Eav.Context;
-using ToSic.Eav.Logging;
+﻿using ToSic.Eav.Context;
 using ToSic.Sxc.Blocks;
 
 namespace ToSic.Sxc.Context
 {
     /// <summary>
     /// This provides other systems with a context
-    /// Note that it's important to always make this scoped, not transient, as there is some re-use after initialization
+    /// Note that it's important to always make this **Scoped**, not transient, as there is some re-use after initialization
     /// </summary>
-    public interface IContextResolver: IHasLog<IContextResolver>
+    public interface IContextResolver: Eav.Context.IContextResolver
     {
-        /// <summary>
-        /// This is the most basic kind of context. ATM you could also inject it directly,
-        /// but we want to introduce the capability of giving a static site or something
-        /// without having to write code implementing IContextOfSite
-        /// </summary>
-        /// <returns></returns>
-        IContextOfSite Site();
-
-        IContextOfApp App(int appId);
-
         /// <summary>
         /// Return the block or throw an error
         /// </summary>
-        IContextOfBlock BlockRequired();
+        IContextOfBlock BlockContextRequired();
 
         /// <summary>
         /// Return the block if known, or null if not
         /// </summary>
         /// <returns>The current block or null</returns>
-        IContextOfBlock BlockOrNull();
+        IContextOfBlock BlockContextOrNull();
 
         /// <summary>
         /// Return the block if known, or an app context if not
         /// </summary>
         /// <param name="appId"></param>
         /// <returns></returns>
-        IContextOfApp BlockOrApp(int appId);
+        IContextOfApp GetBlockOrSetApp(int appId);
 
-        IContextOfApp AppOrBlock(string nameOrPath);
+        IContextOfApp SetAppOrGetBlock(string nameOrPath);
 
-        IContextOfApp AppOrNull(string nameOrPath);
+        IContextOfApp SetAppOrNull(string nameOrPath);
 
         IContextOfApp AppNameRouteBlock(string nameOrPath);
 
-        void AttachBlockContext(Func<IContextOfBlock> getBlockContext);
+        void AttachBlock(BlockWithContextProvider blockWithContextProvider);
 
-        void AttachRealBlock(Func<IBlock> getBlock);
+        IBlock BlockOrNull();
 
-        IBlock RealBlockOrNull();
-
-        IBlock RealBlockRequired();
+        IBlock BlockRequired();
 
     }
 }

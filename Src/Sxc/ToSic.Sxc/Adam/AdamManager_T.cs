@@ -1,26 +1,37 @@
 ﻿using System;
 using System.Linq;
 using ToSic.Eav.Apps;
+using ToSic.Eav.Context;
 using ToSic.Eav.Data;
-using ToSic.Eav.Logging;
-using ToSic.Eav.Plumbing;
-using ToSic.Sxc.Context;
+using ToSic.Lib.DI;
+using ToSic.Lib.Logging;
 
 namespace ToSic.Sxc.Adam
 {
     public class AdamManager<TFolderId, TFileId>: AdamManager
     {
+        private readonly Generator<AdamStorageOfField<TFolderId, TFileId>> _fieldStorageGenerator;
+        private readonly LazySvc<IAdamFileSystem<TFolderId, TFileId>> _adamFsLazy;
 
         #region Constructor / DI
-        public AdamManager(Lazy<AppRuntime> appRuntime, Lazy<AdamMetadataMaker> metadataMaker) : base(appRuntime, metadataMaker, "Adm.MngrTT")
+        public AdamManager(
+            LazySvc<AppRuntime> appRuntime,
+            LazySvc<AdamMetadataMaker> metadataMaker,
+            AdamConfiguration adamConfiguration,
+            LazySvc<IAdamFileSystem<TFolderId, TFileId>> adamFsLazy,
+            Generator<AdamStorageOfField<TFolderId, TFileId>> fieldStorageGenerator)
+            : base(appRuntime, metadataMaker, adamConfiguration, "Adm.MngrTT")
         {
+            ConnectServices(
+                _adamFsLazy = adamFsLazy.SetInit(f => f.Init(this)),
+                _fieldStorageGenerator = fieldStorageGenerator
+            );
         }
 
-        public override AdamManager Init(IContextOfApp ctx, int compatibility, ILog parentLog)
+        public override AdamManager Init(IContextOfApp ctx, int compatibility)
         {
-            base.Init(ctx, compatibility, parentLog);
-            AdamFs = AppRuntime.ServiceProvider.Build<IAdamFileSystem<TFolderId, TFileId>>()
-                .Init(this, Log);
+            base.Init(ctx, compatibility);
+            AdamFs = _adamFsLazy.Value;
             return this;
         }
 
@@ -50,7 +61,7 @@ namespace ToSic.Sxc.Adam
 
         internal Folder<TFolderId, TFileId> Folder(string path, bool autoCreate)
         {
-            var callLog = Log.Call<Folder<TFolderId, TFileId>>($"{path}, {autoCreate}");
+            var callLog = Log.Fn<Folder<TFolderId, TFileId>>($"{path}, {autoCreate}");
             
             // create all folders to ensure they exist. Must do one-by-one because the environment must have it in the catalog
             var pathParts = path.Split('/');
@@ -62,20 +73,39 @@ namespace ToSic.Sxc.Adam
                 if (autoCreate)
                     Add(pathToCheck);
                 else
-                    throw new Exception("subfolder " + pathToCheck + "not found");
+                {
+                    Log.A($"subfolder {pathToCheck} not found");
+                    return callLog.ReturnNull("not found");
+                }
             }
 
-            return callLog(null, Folder(path));
+            return callLog.ReturnAsOk(Folder(path));
         }
 
         #region Type specific results which the base class already offers the interface to
 
         public Export<TFolderId, TFileId> Export => new Export<TFolderId, TFileId>(this);
 
-        public override IFolder Folder(Guid entityGuid, string fieldName) 
-            => new FolderOfField<TFolderId, TFileId>(this, entityGuid, fieldName);
-        
-        public override IFolder Folder(IEntity entity, string fieldName) => Folder( entity.EntityGuid, fieldName);
+        public override IFolder Folder(Guid entityGuid, string fieldName)
+        {
+            var folderStorage = _fieldStorageGenerator.New().InitItemAndField(entityGuid, fieldName);
+            folderStorage.Init(this);
+            return new FolderOfField<TFolderId, TFileId>(this, folderStorage);
+        }
+
+        public override IFolder Folder(IEntity entity, string fieldName) => Folder(entity.EntityGuid, fieldName);
+
+        // Note: Signature isn't great yet, as it's int, but theoretically it could be another type.
+        public override IFile File(int id) =>
+            id is TFileId fileId 
+                ? AdamFs.GetFile(fileId) 
+                : null;
+
+        // Note: Signature isn't great yet, as it's int, but theoretically it could be another type.
+        public override IFolder Folder(int id) =>
+            id is TFolderId fileId 
+                ? AdamFs.GetFolder(fileId) 
+                : null;
 
         #endregion
     }

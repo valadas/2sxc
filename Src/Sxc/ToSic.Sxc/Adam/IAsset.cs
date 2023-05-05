@@ -1,5 +1,7 @@
 ﻿using ToSic.Eav.Data;
-using ToSic.Eav.Documentation;
+using ToSic.Eav.Metadata;
+using ToSic.Lib.Documentation;
+using ToSic.Sxc.Data;
 
 namespace ToSic.Sxc.Adam
 {
@@ -8,7 +10,7 @@ namespace ToSic.Sxc.Adam
     /// This contains properties which both <see cref="IFolder"/> and <see cref="IFile"/> have in common.
     /// </summary>
     [PublicApi_Stable_ForUseInYourCode]
-    public interface IAsset
+    public interface IAsset: IHasMetadata // IIsMetadataTarget
     {
         #region Metadata
         /// <summary>
@@ -23,18 +25,21 @@ namespace ToSic.Sxc.Adam
         /// to help in razor template etc.
         /// </summary>
         /// <returns>An IDynamicEntity which contains the metadata, or an empty IDynamicEntity which still works if no metadata exists.</returns>
-        dynamic Metadata { get; }
+#pragma warning disable CS0108, CS0114
+        IDynamicMetadata Metadata { get; }
+#pragma warning restore CS0108, CS0114
 
-        /// <summary>
-        /// Experimental
-        /// </summary>
-        [PrivateApi]
-        MetadataFor MetadataId { get; }
+        ///// <summary>
+        ///// Experimental
+        ///// </summary>
+        //[PrivateApi]
+        //ITarget MetadataId { get; }
         #endregion
 
 
         /// <summary>
-        /// The path to this asset as used from external access
+        /// The path to this asset as used from external access.
+        /// Must be a full url beginning with a "/" like "/Portals/0/adam/..."
         /// </summary>
         /// <returns>The url to this asset</returns>
         string Url { get; }

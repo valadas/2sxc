@@ -1,5 +1,5 @@
-﻿using ToSic.Eav.Documentation;
-using ToSic.Eav.LookUp;
+﻿using ToSic.Eav.LookUp;
+using ToSic.Lib.Documentation;
 using ToSic.Sxc.Apps;
 using ToSic.Sxc.Data;
 
@@ -21,7 +21,7 @@ namespace ToSic.Sxc.LookUp
             {
                 if (_settings != null || _app.Settings == null) return _settings;
                 var dynEnt = _app.Settings as IDynamicEntity;
-                return _settings = new LookUpInEntity("appsettings", dynEnt?.Entity, dynEnt?.Dimensions);
+                return _settings = new LookUpInEntity("appsettings", dynEnt?.Entity, dynEnt?._Services.Dimensions);
             }
         }
         private ILookUp _settings;
@@ -32,7 +32,7 @@ namespace ToSic.Sxc.LookUp
             {
                 if (_resources != null || _app.Resources == null) return _resources;
                 var dynEnt = _app.Resources as IDynamicEntity;
-                return _resources = new LookUpInEntity("appresources", dynEnt?.Entity, dynEnt?.Dimensions);
+                return _resources = new LookUpInEntity("appresources", dynEnt?.Entity, dynEnt?._Services.Dimensions);
             }
         }
         private ILookUp _resources;

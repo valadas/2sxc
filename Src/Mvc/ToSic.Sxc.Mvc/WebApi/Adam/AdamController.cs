@@ -1,8 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Mvc;
+using ToSic.Lib.Logging;
+using ToSic.Eav.WebApi.Adam;
 using ToSic.Eav.WebApi.Dto;
 using ToSic.Eav.WebApi.Errors;
+using ToSic.Eav.WebApi.PublicApi;
 using ToSic.Sxc.WebApi.Adam;
 using ToSic.Sxc.WebApi.PublicApi;
 
@@ -62,7 +65,7 @@ namespace ToSic.Sxc.Mvc.WebApi.Adam
                 var filesCollection = Request.Form.Files;
                 if (filesCollection.Count <= 0)
                 {
-                    Log.Add("Error, no files");
+                    Log.A("Error, no files");
                     return new UploadResultDto { Success = false, Error = "No file was uploaded." };
                 }
 
@@ -97,11 +100,11 @@ namespace ToSic.Sxc.Mvc.WebApi.Adam
         [HttpGet("items")]
         public IEnumerable<AdamItemDto> Items(int appId, string contentType, Guid guid, string field, string subfolder, bool usePortalRoot = false)
         {
-            var callLog = Log.Call<IEnumerable<AdamItemDto>>($"adam items a:{appId}, i:{guid}, field:{field}, subfolder:{subfolder}, useRoot:{usePortalRoot}");
+            var callLog = Log.Fn<IEnumerable<AdamItemDto>>($"adam items a:{appId}, i:{guid}, field:{field}, subfolder:{subfolder}, useRoot:{usePortalRoot}");
             var results = _adamItems
                 .Init(appId, contentType, guid, field, usePortalRoot, Log)
                 .ItemsInField(subfolder);
-            return callLog("ok",  results);
+            return callLog.ReturnAsOk(results);
         }
 
         [HttpPost("folder")]

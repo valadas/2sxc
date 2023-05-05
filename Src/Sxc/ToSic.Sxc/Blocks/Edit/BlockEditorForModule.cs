@@ -1,18 +1,23 @@
 ﻿using System;
-using ToSic.Eav;
 using ToSic.Eav.Data;
-using ToSic.Eav.Plumbing;
-using ToSic.Sxc.Apps;
+using ToSic.Lib.DI;
+using ToSic.Lib.Logging;
 using ToSic.Sxc.Run;
 
 namespace ToSic.Sxc.Blocks.Edit
 {
-    internal class BlockEditorForModule: BlockEditorBase
+    public class BlockEditorForModule : BlockEditorBase
     {
-        public BlockEditorForModule(IServiceProvider serviceProvider, Lazy<CmsRuntime> lazyCmsRuntime, Lazy<CmsManager> cmsManagerLazy) : base(serviceProvider, lazyCmsRuntime, cmsManagerLazy) { }
-        private IPlatformModuleUpdater PlatformModuleUpdater => _platformModuleUpdater 
-                                                                ?? (_platformModuleUpdater = ServiceProvider.Build<IPlatformModuleUpdater>().Init(Log));
-        private IPlatformModuleUpdater _platformModuleUpdater;
+        public BlockEditorForModule(MyServices services,
+            LazySvc<IPlatformModuleUpdater> platformModuleUpdater) : base(services)
+        {
+            ConnectServices(_platformModuleUpdater = platformModuleUpdater);
+        }
+
+        private readonly LazySvc<IPlatformModuleUpdater> _platformModuleUpdater;
+
+        private IPlatformModuleUpdater PlatformModuleUpdater => _platformModuleUpdater.Value;
+
 
         protected override void SavePreviewTemplateId(Guid templateGuid)
             => PlatformModuleUpdater.SetPreview(Block.Context.Module.Id, templateGuid);
@@ -26,7 +31,7 @@ namespace ToSic.Sxc.Blocks.Edit
 
         internal override void UpdateTitle(IEntity titleItem)
         {
-            Log.Add("update title");
+            Log.A("update title");
             PlatformModuleUpdater.UpdateTitle(Block, titleItem);
         }
 

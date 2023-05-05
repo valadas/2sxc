@@ -1,28 +1,35 @@
-﻿using System;
-using ToSic.Eav.Apps;
+﻿using ToSic.Eav.Apps;
+using ToSic.Lib.Logging;
+using ToSic.Lib.Services;
 using ToSic.Sxc.Polymorphism;
 
 namespace ToSic.Sxc.WebApi.Views
 {
-    internal class PolymorphismBackend : WebApiBackendBase<PolymorphismBackend>
+    public class PolymorphismBackend : ServiceBase
     {
-        public PolymorphismBackend(IServiceProvider serviceProvider) : base(serviceProvider, "Bck.Views") { }
+        public PolymorphismBackend(Polymorphism.Polymorphism polymorphism, IAppStates appStates) : base("Bck.Views")
+        {
+            ConnectServices(
+                _polymorphism = polymorphism,
+                _appStates = appStates
+            );
+        }
 
-
-
+        private readonly Polymorphism.Polymorphism _polymorphism;
+        private readonly IAppStates _appStates;
 
         public PolymorphismDto Polymorphism(int appId)
         {
-            var callLog = Log.Call<dynamic>($"a#{appId}");
-            var appState = State.Get(appId);
-            var poly = new Polymorphism.Polymorphism(appState.List, Log);
+            var callLog = Log.Fn<PolymorphismDto>($"a#{appId}");
+            var appState = _appStates.Get(appId);
+            var poly = _polymorphism.Init(appState.List);
             var result = new PolymorphismDto
             {
                 Id = poly.Entity?.EntityId, 
                 Resolver = poly.Resolver, 
                 TypeName = PolymorphismConstants.Name
             };
-            return callLog(null, result);
+            return callLog.Return(result);
         }
     }
 }

@@ -3,52 +3,53 @@ using System.Linq;
 using System.Xml.Linq;
 using ToSic.Eav.Apps.ImportExport;
 using ToSic.Eav.ImportExport;
-using ToSic.Eav.Metadata;
-using ToSic.Eav.Persistence.Interfaces;
+using ToSic.Lib.Logging;
 using ToSic.Eav.Repositories;
-using ToSic.Eav.Repository.Efc;
+using ToSic.Lib.DI;
 
 namespace ToSic.Sxc.Apps.ImportExport
 {
     public partial class XmlImportFull: XmlImportWithFiles
     {
-        private readonly Lazy<CmsManager> _cmsManagerLazy;
+        private readonly LazySvc<CmsManager> _cmsManagerLazy;
         private readonly IRepositoryLoader _repositoryLoader;
 
-        public XmlImportFull(Lazy<Import> importerLazy, 
-            Lazy<CmsManager> cmsManagerLazy, 
-            Lazy<DbDataController> dbDataForNewApp,
-            Lazy<DbDataController> dbDataForAppImport,
-            IImportExportEnvironment importExportEnvironment, 
-            IRepositoryLoader repositoryLoader,
-            ITargetTypes metaTargetTypes) : base(importerLazy, dbDataForNewApp, dbDataForAppImport, importExportEnvironment, metaTargetTypes, "Sxc.XmlImp")
+        public XmlImportFull(
+            MyServices services,
+            LazySvc<CmsManager> cmsManagerLazy,
+            IRepositoryLoader repositoryLoader
+            ) : base(services, "Sxc.XmlImp")
         {
-            _cmsManagerLazy = cmsManagerLazy;
-            _repositoryLoader = repositoryLoader.Init(Log);
+            ConnectServices(
+                _cmsManagerLazy = cmsManagerLazy,
+                _repositoryLoader = repositoryLoader
+            );
         }
 
-        public new bool ImportXml(int zoneId, int appId, XDocument doc, bool leaveExistingValuesUntouched = true)
+        // ReSharper disable once UnusedMember.Global
+        // The system says it's never used, but it's provided through DI as the base class
+        public new bool ImportXml(int zoneId, int appId, XDocument doc, bool leaveExistingValuesUntouched = true
+        ) => Log.Func($"{zoneId}, {appId}, ..., {leaveExistingValuesUntouched}", l =>
         {
-            var wrapLog = Log.Call<bool>(parameters: $"{zoneId}, {appId}, ..., {leaveExistingValuesUntouched}");
             var ok = base.ImportXml(zoneId, appId, doc, leaveExistingValuesUntouched);
             if (!ok)
-                return wrapLog("error", false);
+                return (false, "error");
 
-            Log.Add("Now import templates - if found");
+            l.A("Now import templates - if found");
 
-            var xmlSource = doc.Element(XmlConstants.RootNode) 
-                ?? throw new Exception("error import - xmlSource should always exist");
+            var xmlSource = doc.Element(XmlConstants.RootNode)
+                            ?? throw new Exception("error import - xmlSource should always exist");
 
             if (xmlSource.Elements(XmlConstants.Templates).Any())
             {
-                Log.Add("found some templates");
+                l.A("found some templates");
                 ImportXmlTemplates(xmlSource);
             }
             else
-                Log.Add("No templates found");
+                l.A("No templates found");
 
-            return wrapLog("ok", true);
-        }
+            return (true, "ok");
+        });
 
     }
 }

@@ -1,72 +1,44 @@
 ﻿using System.Linq;
-using ToSic.Eav.Documentation;
-using ToSic.Sxc.Blocks;
+using ToSic.Lib.Helpers;
+using ToSic.Lib.Logging;
+using ToSic.Sxc.Data;
+using static ToSic.Eav.DataSource.DataSourceConstants;
+using static ToSic.Sxc.Blocks.ViewParts;
 
 namespace ToSic.Sxc.Code
 {
     public partial class DynamicCodeRoot
     {
-
-
-        #region basic properties like Content, Presentation, ListContent, ListPresentation
+        #region basic properties like Content, Header
 
         /// <inheritdoc />
-        public dynamic Content
-        {
-            get
-            {
-                if (_content == null) TryToBuildContent();
-                return _content;
-            }
-        }
-        private dynamic _content;
+        public dynamic Content => _contentGo.Get(() => TryToBuildFirstOfStream(StreamDefaultName));
+        private readonly GetOnce<object> _contentGo = new GetOnce<object>();
 
 
         /// <inheritdoc />
-		public dynamic Header
+        public dynamic Header => _header.Get(Log, l =>
         {
-            get
-            {
-                if (_header == null) TryToBuildHeaderObject();
-                return _header;
-            }
-        }
-        private dynamic _header;
+            var header = TryToBuildFirstOfStream(StreamHeader);
+            if (header != null) return header;
+            // If header isn't found, it could be that an old query is used which attached the stream to the old name
+            l.A($"Header not yet found in {StreamHeader}, will try {StreamHeaderOld}");
+            return TryToBuildFirstOfStream(StreamHeaderOld);
+        });
+        private readonly GetOnce<object> _header = new GetOnce<object>();
 
-        /// <remarks>
-        /// This must be lazy-loaded, otherwise initializing the AppAndDataHelper will break when the Data-object fails 
-        /// - this would break API even though the List etc. are never accessed
-        /// </remarks>
-        private void TryToBuildHeaderObject()
+        private dynamic TryToBuildFirstOfStream(string sourceStream)
         {
-            Log.Add("try to build ListContent (header) object");
-            if (Data == null || Block.View == null) return;
-            if (!Data.Out.ContainsKey(ViewParts.ListContent)) return;
+            var wrapLog = Log.Fn<object>(sourceStream);
+            if (Data == null || Block.View == null) return wrapLog.ReturnNull("no data/block");
+            if (!Data.Out.ContainsKey(sourceStream)) return wrapLog.ReturnNull("stream not found");
 
-            var listEntity = Data[ViewParts.ListContent].Immutable.FirstOrDefault();
-            _header = listEntity == null ? null : AsDynamic(listEntity);
+            var list = Data[sourceStream].List;
+            return !list.Any()
+                ? wrapLog.ReturnNull("first is null") 
+                : wrapLog.Return(new DynamicEntity(list, null, null, null, DynamicEntityServices), "found");
         }
-
-#pragma warning disable 618
-
-        /// <remarks>
-        /// This must be lazy-loaded, otherwise initializing the AppAndDataHelper will break when the Data-object fails 
-        /// - this would break API even though the List etc. are never accessed
-        /// </remarks>
-        [PrivateApi]
-        internal void TryToBuildContent()
-        {
-            Log.Add("try to build Content objects");
-
-            if (Data == null || Block.View == null) return;
-            if (!Data.Out.ContainsKey(Eav.Constants.DefaultStreamName)) return;
-
-            var entities = Data.Immutable; //.ToList();
-            if (entities.Any()) _content = AsDynamic(entities.First());
-
-        }
-#pragma warning restore 618
-
+        
         #endregion
     }
 }

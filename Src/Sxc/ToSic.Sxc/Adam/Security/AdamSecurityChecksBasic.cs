@@ -1,4 +1,4 @@
-﻿using ToSic.Eav;
+﻿using ToSic.Lib.Logging;
 
 namespace ToSic.Sxc.Adam
 {
@@ -8,7 +8,7 @@ namespace ToSic.Sxc.Adam
     /// </summary>
     public class AdamSecurityChecksBasic: AdamSecurityChecksBase
     {
-        public AdamSecurityChecksBasic() : base(LogNames.Basic) { }
+        public AdamSecurityChecksBasic(MyServices services) : base(services, LogScopes.Base) { }
 
         /// <summary>
         /// Our version here just gives an ok - so that the site doesn't block this extension.

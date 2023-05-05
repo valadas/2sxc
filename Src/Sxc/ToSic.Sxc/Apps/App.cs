@@ -1,12 +1,20 @@
 ﻿using System;
+using System.IO;
 using ToSic.Eav.Apps;
+using ToSic.Eav.Apps.Decorators;
+using ToSic.Eav.Apps.Paths;
 using ToSic.Eav.Context;
 using ToSic.Eav.Data;
-using ToSic.Eav.Documentation;
-using ToSic.Eav.Logging;
+using ToSic.Eav.Data.PiggyBack;
+using ToSic.Lib.Logging;
+using ToSic.Eav.Run;
+using ToSic.Lib.DI;
+using ToSic.Lib.Documentation;
+using ToSic.Lib.Helpers;
 using ToSic.Sxc.Data;
-using ToSic.Sxc.Run;
+using ToSic.Sxc.LookUp;
 using EavApp = ToSic.Eav.Apps.App;
+// ReSharper disable ConvertToNullCoalescingCompoundAssignment
 
 namespace ToSic.Sxc.Apps
 {
@@ -15,15 +23,37 @@ namespace ToSic.Sxc.Apps
     /// name, folder, data, metadata etc.
     /// </summary>
     [PublicApi_Stable_ForUseInYourCode]
-    public class App : EavApp, IApp
+    public partial class App : EavApp, IApp
     {
         #region DI Constructors
-
-        public App(AppDependencies dependencies, ILinkPaths linkPaths) : base(dependencies, "App.SxcApp")
+        [PrivateApi]
+        public App(MyServices services, 
+            LazySvc<GlobalPaths> globalPaths, 
+            LazySvc<AppPaths> appPathsLazy, 
+            LazySvc<DynamicEntity.MyServices> dynamicEntityDependenciesLazy,
+            Generator<IAppStates> appStates,
+            Generator<AppConfigDelegate> appConfigDelegate) 
+            : base(services, "App.SxcApp")
         {
-            _linkPaths = linkPaths;
+            this.ConnectServices(
+                _globalPaths = globalPaths,
+                _appPathsLazy = appPathsLazy,
+                _dynamicEntityDependenciesLazy = dynamicEntityDependenciesLazy,
+                _appStates = appStates,
+                _appConfigDelegate = appConfigDelegate
+            );
         }
 
+        private readonly LazySvc<GlobalPaths> _globalPaths;
+        private readonly LazySvc<AppPaths> _appPathsLazy;
+        private readonly LazySvc<DynamicEntity.MyServices> _dynamicEntityDependenciesLazy;
+        private readonly Generator<IAppStates> _appStates;
+        private readonly Generator<AppConfigDelegate> _appConfigDelegate;
+
+        private AppPaths AppPaths => _appPaths.Get(() => _appPathsLazy.Value.Init(Site, AppState));
+        private readonly GetOnce<AppPaths> _appPaths = new GetOnce<AppPaths>();
+
+        [PrivateApi]
         public App PreInit(ISite site)
         {
             Site = site;
@@ -34,39 +64,25 @@ namespace ToSic.Sxc.Apps
         /// Main constructor which auto-configures the app-data
         /// </summary>
         [PrivateApi]
-        public new App Init(IAppIdentity appId, Func<EavApp, IAppDataConfiguration> buildConfig, ILog parentLog)
+        public new App Init(IAppIdentity appIdentity, Func<EavApp, IAppDataConfiguration> buildConfig)
         {
-            base.Init(appId, buildConfig, parentLog);
-            return this;
-        }
-
-        /// <summary>
-        /// Quick init - won't provide data but can access properties, metadata etc.
-        /// </summary>
-        /// <param name="appIdentity"></param>
-        /// <param name="parentLog"></param>
-        /// <returns></returns>
-        public App InitNoData(IAppIdentity appIdentity, ILog parentLog)
-        {
-            Init(appIdentity, null, parentLog);
-            Log.Rename("App.SxcLgt");
-            Log.Add("App only initialized for light use - data shouldn't be used");
+            base.Init(appIdentity, buildConfig);
+            if (buildConfig != null) return this;
+            Log.A("App only initialized for light use - .Data shouldn't be used");
             return this;
         }
 
         #endregion
 
 
-        private readonly ILinkPaths _linkPaths;
-
         #region Dynamic Properties: Configuration, Settings, Resources
         /// <inheritdoc />
-        public AppConfiguration Configuration => _appConfig
-                                                 // Create config object. Note that AppConfiguration could be null, then it would use default values
-                                                 ?? (_appConfig = new AppConfiguration(AppConfiguration, Log));
+        public AppConfiguration Configuration
+            // Create config object. Note that AppConfiguration could be null, then it would use default values
+            => _appConfig.Get(() => new AppConfiguration(AppConfiguration, Log));
+        private readonly GetOnce<AppConfiguration> _appConfig = new GetOnce<AppConfiguration>();
 
-        private AppConfiguration _appConfig;
-
+#if NETFRAMEWORK
         [PrivateApi("obsolete, use the typed accessor instead, only included for old-compatibility")]
         [Obsolete("use the new, typed accessor instead")]
         dynamic SexyContent.Interfaces.IApp.Configuration
@@ -77,50 +93,81 @@ namespace ToSic.Sxc.Apps
                 return c?.Entity != null ? MakeDynProperty(c.Entity) : null;
             }
         }
+#endif
+        private dynamic MakeDynProperty(IEntity contents) => new DynamicEntity(contents, DynamicEntityServices);
 
-        private dynamic MakeDynProperty(IEntity contents) =>
-            new DynamicEntity(contents, Site.SafeLanguagePriorityCodes(), 10, null)
-                {ServiceProviderOrNull = DataSourceFactory.ServiceProvider};
-
-        /// <inheritdoc />
-        public dynamic Settings
-        {
-            get
-            {
-                if (!_settingsLoaded && AppSettings != null) _settings = MakeDynProperty(AppSettings);
-                _settingsLoaded = true;
-                return _settings;
-            }
-        }
-        private bool _settingsLoaded;
-        private dynamic _settings;
+        // TODO: THIS CAN PROBABLY BE IMPROVED
+        // TO GET THE DynamicEntityDependencies from the DynamicCodeRoot which creates the App...? 
+        // ATM it's a bit limited, for example it probably cannot resolve links
+        private DynamicEntity.MyServices DynamicEntityServices
+            => _dynamicEntityDependencies.Get(() =>
+                _dynamicEntityDependenciesLazy.Value.Init(null, Site.SafeLanguagePriorityCodes(), Log));
+        private readonly GetOnce<DynamicEntity.MyServices> _dynamicEntityDependencies = new GetOnce<DynamicEntity.MyServices>();
 
         /// <inheritdoc />
-        public dynamic Resources
-        {
-            get
-            {
-                if (!_resLoaded && AppResources != null) _res = MakeDynProperty(AppResources);
-                _resLoaded = true;
-                return _res;
-            }
-        }
-        private bool _resLoaded;
-        private dynamic _res;
+        public dynamic Settings => AppSettings != null ? _settings.Get(() => MakeDynProperty(AppSettings)) : null;
+        private readonly GetOnce<dynamic> _settings = new GetOnce<dynamic>();
+
+        /// <inheritdoc />
+        public dynamic Resources => AppResources != null ? _res.Get(() => MakeDynProperty(AppResources)) : null;
+        private readonly GetOnce<dynamic> _res = new GetOnce<dynamic>();
 
         #endregion
 
 
         #region Paths
-        /// <inheritdoc />
-        public string Path => _path ?? (_path = _linkPaths.ToAbsolute(System.IO.Path.Combine(Site.AppsRootLink, Folder)));
-        private string _path;
 
         /// <inheritdoc />
-        public string Thumbnail => System.IO.File.Exists(PhysicalPath + IconFile) ? Path + IconFile : null;
+        public string Path => _path.Get(() => AppPaths.Path);
+        private readonly GetOnce<string> _path = new GetOnce<string>();
+
+        /// <inheritdoc />
+        public string Thumbnail
+        {
+            get
+            {
+                if (_thumbnail != null) return _thumbnail;
+
+                // Primary app - we only PiggyBack cache the icon in this case
+                // Because otherwise the icon could get moved, and people would have a hard time seeing the effect
+                if (NameId == Eav.Constants.PrimaryAppGuid)
+                    return _thumbnail = AppState.GetPiggyBack(nameof(Thumbnail), 
+                        () => _globalPaths.Value.GlobalPathTo(AppConstants.AppPrimaryIconFile, PathTypes.Link));
+
+                // standard app (not global) try to find app-icon in its (portal) app folder
+                if (!AppState.IsShared())
+                    if (File.Exists(PhysicalPath + "/" + AppConstants.AppIconFile))
+                        return _thumbnail = Path + "/" + AppConstants.AppIconFile;
+
+                // global app (and standard app without app-icon in its portal folder) looks for app-icon in global shared location 
+                if (File.Exists(PhysicalPathShared + "/" + AppConstants.AppIconFile))
+                    return _thumbnail = PathShared + "/" + AppConstants.AppIconFile;
+
+                return null;
+            }
+        }
+        private string _thumbnail;
+
+        /// <inheritdoc />
+        public string PathShared => _pathShared.Get(() => AppPaths.PathShared);
+        private readonly GetOnce<string> _pathShared = new GetOnce<string>();
+
+        /// <inheritdoc />
+        public string PhysicalPathShared => _physicalPathGlobal.Get(() => AppPaths.PhysicalPathShared);
+        private readonly GetOnce<string> _physicalPathGlobal = new GetOnce<string>();
+
+        [PrivateApi("not public, not sure if we should surface this")]
+        public string RelativePath => _relativePath.Get(() => AppPaths.RelativePath);
+        private readonly GetOnce<string> _relativePath = new GetOnce<string>();
+
+
+        [PrivateApi("not public, not sure if we should surface this")]
+        public string RelativePathShared => _relativePathShared.Get(() => AppPaths.RelativePathShared);
+        private readonly GetOnce<string> _relativePathShared = new GetOnce<string>();
+
 
         #endregion
 
-        
+
     }
 }

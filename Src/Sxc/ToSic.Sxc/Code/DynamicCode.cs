@@ -1,10 +1,11 @@
-﻿using ToSic.Eav.Data;
-using ToSic.Eav.Documentation;
-using ToSic.Eav.Logging;
+﻿using ToSic.Lib.Data;
+using ToSic.Lib.Documentation;
+using ToSic.Lib.Helpers;
+using ToSic.Lib.Logging;
 using ToSic.Sxc.Apps;
 using ToSic.Sxc.Context;
 using ToSic.Sxc.DataSources;
-using ToSic.Sxc.Web;
+using ToSic.Sxc.Services;
 
 namespace ToSic.Sxc.Code
 {
@@ -13,64 +14,66 @@ namespace ToSic.Sxc.Code
     /// It delegates all properties like App and methods like AsDynamic() to the parent item which initially caused it to be compiled.
     /// </summary>
     [PublicApi_Stable_ForUseInYourCode]
-    public abstract partial class DynamicCode : HasLog, IDynamicCode, IWrapper<IDynamicCode>, ICoupledDynamicCode
+    public abstract partial class DynamicCode : ServiceForDynamicCode, IHasCodeLog, IDynamicCode, IWrapper<IDynamicCode>, IHasDynamicCodeRoot, INeedsDynamicCodeRoot
     {
+
         #region Constructor - NOT for DI
 
         /// <summary>
         /// Main constructor, may never have parameters, otherwise inheriting code will run into problems. 
         /// </summary>
-        protected DynamicCode() : base("Sxc.DynCod")
-        {
+        protected DynamicCode() : base("Sxc.DynCod") { }
 
-        }
-        
+        #endregion
+
+        #region IHasLog
+
+        // <inheritdoc />
+        public new ICodeLog Log => _codeLog.Get(() => new CodeLog(base.Log));
+        private readonly GetOnce<ICodeLog> _codeLog = new GetOnce<ICodeLog>();
+
         #endregion
 
         #region Dynamic Code Coupling
 
         [PrivateApi]
-        public virtual void DynamicCodeCoupling(IDynamicCode parent)
+        public override void ConnectToRoot(IDynamicCodeRoot codeRoot) => base.Log.Do(() =>
         {
-            Log.LinkTo(parent?.Log);
-            Log.Call()(null);
-            UnwrappedContents = parent;
-        }
+            base.ConnectToRoot(codeRoot);
+            _codeLog.Reset(); // reset in case it was already used before
+        });
 
-        /// <inheritdoc />
-        /// <remarks>
-        /// The parent of this object. It's not called Parent but uses an exotic name to ensure that your code won't accidentally create a property with the same name.
-        /// </remarks>
-        public IDynamicCode UnwrappedContents { get; private set; }
+        [PrivateApi]
+        public IDynamicCode GetContents() => _DynCodeRoot;
 
         #endregion
 
         /// <inheritdoc />
-        public IApp App => UnwrappedContents?.App;
+        public IApp App => _DynCodeRoot?.App;
 
         /// <inheritdoc />
-        public IBlockDataSource Data => UnwrappedContents?.Data;
+        public IBlockDataSource Data => _DynCodeRoot?.Data;
 
         /// <inheritdoc />
-        public TService GetService<TService>() => UnwrappedContents.GetService<TService>();
+        public TService GetService<TService>() => _DynCodeRoot.GetService<TService>();
 
 
 
         #region Content and Header
 
         /// <inheritdoc />
-        public dynamic Content => UnwrappedContents?.Content;
+        public dynamic Content => _DynCodeRoot?.Content;
         /// <inheritdoc />
-        public dynamic Header => UnwrappedContents?.Header;
+        public dynamic Header => _DynCodeRoot?.Header;
 
         #endregion
 
 
         #region Link and Edit
         /// <inheritdoc />
-        public ILinkHelper Link => UnwrappedContents?.Link;
+        public ILinkService Link => _DynCodeRoot?.Link;
         /// <inheritdoc />
-        public IInPageEditingSystem Edit => UnwrappedContents?.Edit;
+        public IEditService Edit => _DynCodeRoot?.Edit;
         #endregion
 
         #region SharedCode - must also map previous path to use here
@@ -79,26 +82,28 @@ namespace ToSic.Sxc.Code
         public string CreateInstancePath { get; set; }
 
         /// <inheritdoc />
-        public dynamic CreateInstance(string virtualPath, 
-            string dontRelyOnParameterOrder = Eav.Constants.RandomProtectionParameter,
+        public dynamic CreateInstance(string virtualPath,
+            string noParamOrder = Eav.Parameters.Protector,
             string name = null,
             string relativePath = null,
-            bool throwOnError = true)
+            bool throwOnError = true) => base.Log.Func(() =>
         {
-            var wrapLog = Log.Call<dynamic>();
             // usually we don't have a relative path, so we use the preset path from when this class was instantiated
             relativePath = relativePath ?? CreateInstancePath;
-            var instance = UnwrappedContents?.CreateInstance(virtualPath, dontRelyOnParameterOrder, name,
+            var instance = _DynCodeRoot?.CreateInstance(virtualPath, noParamOrder, name,
                 relativePath ?? CreateInstancePath, throwOnError);
-            return wrapLog((instance != null).ToString(), instance);
-        }
+            return (object)instance;
+        });
 
         #endregion
 
-        #region Context WIP
+        #region Context, Settings, Resources
 
-        public ICmsContext CmsContext => UnwrappedContents?.CmsContext;
+        /// <inheritdoc />
+        public ICmsContext CmsContext => _DynCodeRoot?.CmsContext;
 
-        #endregion CmsContext  
+
+        #endregion CmsContext
+
     }
 }

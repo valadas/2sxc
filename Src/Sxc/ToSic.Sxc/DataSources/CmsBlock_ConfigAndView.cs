@@ -1,49 +1,57 @@
-﻿using System;
-using ToSic.Eav.Context;
-using ToSic.Eav.Plumbing;
-using ToSic.Eav.Run;
+﻿using ToSic.Eav.Apps.Parts;
+using ToSic.Eav.DataSource;
+using ToSic.Eav.DataSources;
+using ToSic.Lib.Helpers;
+using ToSic.Lib.Logging;
 using ToSic.Sxc.Apps.Blocks;
 using ToSic.Sxc.Blocks;
-using ToSic.Sxc.Cms.Publishing;
-using ToSic.Sxc.Context;
+// ReSharper disable ConvertToNullCoalescingCompoundAssignment
 
 
 namespace ToSic.Sxc.DataSources
 {
     public sealed partial class CmsBlock
     {
-        
-        private BlockConfiguration BlockConfiguration => _blockConfiguration ?? (_blockConfiguration = LoadBlockConfiguration());
-        private BlockConfiguration _blockConfiguration;
-
-        private BlockConfiguration LoadBlockConfiguration()
+        private ResultOrError<(BlockConfiguration BlockConfiguration, IView View)> ConfigAndViewOrErrors => _everything.Get(() =>
         {
-            var wrapLog = Log.Call<BlockConfiguration>();
+            var config = LoadBlockConfiguration();
+            if (config.IsError)
+                return new ResultOrError<(BlockConfiguration BlockConfiguration, IView view)>(false, default,
+                    config.Errors);
+
+            var view = OverrideView ?? config.Result.View;
+            if (view == null)
+                return new ResultOrError<(BlockConfiguration BlockConfiguration, IView view)>(false, default,
+                    Error.Create(title: "CmsBlock View Missing",
+                        message: "Cannot find View configuration of current CmsBlock"));
+            // all ok 
+            return new ResultOrError<(BlockConfiguration BlockConfiguration, IView view)>(true, (config.Result, view));
+        });
+
+        private readonly GetOnce<ResultOrError<(BlockConfiguration blockConfiguration, IView view)>> _everything =
+            new GetOnce<ResultOrError<(BlockConfiguration blockConfiguration, IView view)>>();
+
+        private ResultOrError<BlockConfiguration> LoadBlockConfiguration() => Log.Func(l =>
+        {
             if (UseSxcInstanceContentGroup)
-                return wrapLog("need content-group, will use from sxc-context", Block.Configuration);
+                return (new ResultOrError<BlockConfiguration>(true, Block.Configuration), "need content-group, will use from Sxc Instance ContentGroup");
 
             // If we don't have a context, then look it up based on the InstanceId
-            Log.Add("need content-group, will construct as cannot use context");
-            if (!InstanceId.HasValue)
-            {
-                wrapLog("Error, no module-id", null);
-                throw new Exception("Looking up BlockConfiguration failed because ModuleId is null.");
-            }
+            l.A("need content-group, will construct as cannot use context");
+            Configuration.Parse();
+            if (!ModuleId.HasValue)
+                return (new ResultOrError<BlockConfiguration>(false, null,
+                    Error.Create(title: $"{nameof(CmsBlock)} cannot find Block Configuration",
+                        message: $"Neither InstanceContext nor {nameof(ModuleId)} found")), "Error, no module-id");
 
-            var sp = DataSourceFactory.ServiceProvider;
-            var userMayEdit = HasInstanceContext && Block.Context.UserMayEdit;
-
-            var cms = _lazyCmsRuntime.IsValueCreated
-                ? _lazyCmsRuntime.Value
-                : _lazyCmsRuntime.Value.Init(this, userMayEdit, Log);
-            var container = sp.Build<IModule>().Init(InstanceId.Value, Log);
+            var cms = _services.LazyCmsRuntime.IsValueCreated
+                ? _services.LazyCmsRuntime.Value
+                : _services.LazyCmsRuntime.Value.InitQ(this);
+            var container = _services.ModuleLazy.Value.Init(ModuleId.Value);
             var blockId = container.BlockIdentifier;
-            return wrapLog("ok", cms.Blocks.GetOrGeneratePreviewConfig(blockId));
-        }
+            return (new ResultOrError<BlockConfiguration>(true, cms.Blocks.GetOrGeneratePreviewConfig(blockId)), "ok");
+        });
 
-
-        private IView View => _view ?? (_view = OverrideView ?? BlockConfiguration.View);
-        private IView _view;
 
         /// <summary>
         /// This allows external settings to override the view given by the configuration. This is used to temporarily use an alternate view.

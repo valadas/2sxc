@@ -3,38 +3,40 @@
     /// <summary>
     /// This should only contain constants which should really be final, no WIP or similar
     /// </summary>
-    public class OqtConstants
+    public static class OqtConstants
     {
+        // used as PackageID in nupkg, oqtane module PackageName, wwwroot/Modules/PackageName, namespace in module.js, etc...
+        public const string PackageName = "ToSic.Sxc.Oqtane";
+
         public const string SiteKeyForZoneId = "EavZone";
 
-        /// <summary>
-        /// This must be added to the `HostEnvironment.ContentRootPath` to really get into the content
-        /// </summary>
+        public const string AppRoot = "2sxc";
+
+        public const string AppRootPublicBase = AppRoot + "\\{0}";
+
+        public const string SharedAppFolder =  "Shared";
+
         public const string ContentSubfolder = "Content";
 
+        public const string ContentRootPublicBase = ContentSubfolder + "\\Tenants\\{0}\\Sites\\{1}";
 
-        public static string AppRootPublicBase = "Tenants\\{0}\\Sites\\{1}\\";
+        public const string ApiAppLinkPart = "api/sxc/app";
 
-        // todo: must later replace the 1 with {0} for string-replaces to work
-        public const string AppAssetsLinkRoot = "/{0}/api/sxc/app-assets";
-
-        // Adam / Download
         public const string DownloadLinkTemplate = "/{0}/api/file/download/{1}";
 
-        public const string UserTokenPrefix = "oqt";
+        public const string UserTokenPrefix = "oqt:userid=";
 
         // #uncertain: maybe should incorporate the virtual path of the application?
-        public const string UiRoot = "/Modules/ToSic.Sxc";
+        public const string UiRoot = $"/Modules/{OqtConstants.PackageName}";
         // #uncertain: maybe should be more dynamic
         public const string SiteRoot = "/";
 
-
-
-        // not yet sure what this is needed for...
-        //public const string WwwRoot = "wwwroot/";
-
-
         // Logging constants
-        public const string OqtLogPrefix = "Oct";
+        public const string OqtLogPrefix = "Oqt";
+        
+        // Special Oqtane constants missing in Oqtane
+        public const string EntityIdParam = "entityid";
+
+        public const int Unknown = -1;
     }
 }

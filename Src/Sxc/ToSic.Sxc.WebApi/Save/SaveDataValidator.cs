@@ -2,14 +2,13 @@
 using System.Linq;
 using ToSic.Eav.Apps;
 using ToSic.Eav.Data;
-using ToSic.Eav.Data.Builder;
 using ToSic.Eav.ImportExport.Json.V1;
-using ToSic.Eav.Logging;
+using ToSic.Lib.Logging;
+using ToSic.Eav.Metadata;
 using ToSic.Eav.WebApi.Dto;
 using ToSic.Eav.WebApi.Errors;
 using ToSic.Eav.WebApi.Formats;
-using ToSic.Sxc.WebApi.Cms;
-using ToSic.Sxc.WebApi.Validation;
+using ToSic.Eav.WebApi.Validation;
 using IEntity = ToSic.Eav.Data.IEntity;
 
 namespace ToSic.Sxc.WebApi.Save
@@ -19,8 +18,7 @@ namespace ToSic.Sxc.WebApi.Save
         public EditDto Package;
         internal AppRuntime AppRead;
 
-        public SaveDataValidator(EditDto package, ILog parentLog) 
-            : base("Val.Save", parentLog, "start save validator", nameof(SaveDataValidator))
+        public SaveDataValidator(EditDto package, ILog parentLog = null) : base(parentLog, "Val.Save")
         {
             Package = package;
         }
@@ -32,17 +30,16 @@ namespace ToSic.Sxc.WebApi.Save
         /// that the save package doesn't contain unexpected trash (which would indicate the UI was broken)
         /// or that invalid combinations get back here
         /// </summary>
-        /// <param name="preparedException"></param>
         /// <returns></returns>
-        internal bool ContainsOnlyExpectedNodes(out HttpExceptionAbstraction preparedException)
+        internal HttpExceptionAbstraction ContainsOnlyExpectedNodes() => Log.Func(() =>
         {
-            var wrapLog = Log.Call();
             if (Package.ContentTypes != null) Add("package contained content-types, unexpected!");
             if (Package.InputTypes != null) Add("package contained input types, unexpected!");
             if (Package.Features != null) Add("package contained features, unexpected!");
 
             // check that items are mostly intact
-            if (Package.Items == null || Package.Items.Count == 0) Add("package didn't contain items, unexpected!");
+            if (Package.Items == null || Package.Items.Count == 0)
+                Add("package didn't contain items, unexpected!");
             else
             {
                 // do various validity tests on items
@@ -50,134 +47,124 @@ namespace ToSic.Sxc.WebApi.Save
                 ValidateEachItemInBundle(Package.Items);
             }
 
-            var ok= BuildExceptionIfHasIssues(out preparedException, "ContainsOnlyExpectedNodes() done");
-            wrapLog($"{ok}");
-            return ok;
-        }
+            BuildExceptionIfHasIssues(out var preparedException, "ContainsOnlyExpectedNodes() done");
+            return preparedException;
+        });
 
         /// <summary>
         /// Do various validity checks on each item
         /// </summary>
-        private void ValidateEachItemInBundle(IList<BundleWithHeader<JsonEntity>> list)
+        private void ValidateEachItemInBundle(IList<BundleWithHeader<JsonEntity>> list) => Log.Do($"{list.Count}", () =>
         {
-            var wrapLog = Log.Call($"{list.Count}");
             foreach (var item in list)
             {
                 if (item.Header == null || item.Entity == null)
                     Add($"item {list.IndexOf(item)} header or entity is missing");
-                else if(item.Header.Guid != item.Entity.Guid) // check this first (because .Group may not exist)
+                else if (item.Header.Guid != item.Entity.Guid) // check this first (because .Group may not exist)
                 {
-                    if(item.Header.Group == null)
-                        Add($"item {list.IndexOf(item)} has guid mismatch on header/entity, and doesn't have a group");
-                    else if (!item.Header.Group.SlotIsEmpty)
+                    if (!item.Header.IsContentBlockMode)
+                        Add(
+                            $"item {list.IndexOf(item)} has guid mismatch on header/entity, and doesn't have a group");
+                    else if (!item.Header.IsEmpty)
                         Add($"item {list.IndexOf(item)} header / entity guid miss match");
                     // otherwise we're fine
                 }
             }
-
-            wrapLog("done");
-        }
+        });
 
         /// <summary>
         /// ensure all want to save to the same assignment type - either in group or not!
         /// </summary>
         private void VerifyAllGroupAssignmentsValid(IReadOnlyCollection<BundleWithHeader<JsonEntity>> list)
-        {
-            var wrapLog = Log.Call($"{list.Count}");
-            var groupAssignments = list.Select(i => i.Header.Group).Where(g => g != null).ToList();
-            if (groupAssignments.Count == 0)
+            => Log.Do($"{list.Count}", () =>
             {
-                wrapLog("none of the items is part of a list/group");
-                return;
-            }
+                var groupAssignments = list.Select(i => i.Header.ContentBlockAppId).Where(g => g != null).ToList();
+                if (groupAssignments.Count == 0)
+                    return "none of the items is part of a list/group";
 
-            if (groupAssignments.Count != list.Count)
-                Add($"Items in package with group: {groupAssignments} " +
-                    $"- should be 0 or {list.Count} (items in list) " +
-                    "- must stop, never expect items to come from different sources");
-            else
-            {
-                var firstInnerContentAppId = groupAssignments.First().ContentBlockAppId;
-                if (list.Any(i => i.Header.Group.ContentBlockAppId != firstInnerContentAppId))
-                    Add("not all items have the same Group.ContentBlockAppId - this is required when using groups");
-            }
+                if (groupAssignments.Count != list.Count)
+                    Add($"Items in package with group: {groupAssignments} " +
+                        $"- should be 0 or {list.Count} (items in list) " +
+                        "- must stop, never expect items to come from different sources");
+                else
+                {
+                    var firstInnerContentAppId = groupAssignments.First();
+                    if (list.Any(i => i.Header.ContentBlockAppId != firstInnerContentAppId))
+                        Add("not all items have the same Group.ContentBlockAppId - this is required when using groups");
+                }
 
-            wrapLog("done");
-        }
+                return "done";
+            });
 
 
-        internal bool EntityIsOk(int count, IEntity newEntity, out HttpExceptionAbstraction preparedException)
+        internal HttpExceptionAbstraction EntityIsOk(int count, IEntity newEntity) => Log.Func(() =>
         {
-            var wrapLog = Log.Call<bool>();
             if (newEntity == null)
             {
                 Add($"entity {count} couldn't deserialize");
-                var notOk = BuildExceptionIfHasIssues(out preparedException);
-                return wrapLog("newEntity is null", notOk);
+                BuildExceptionIfHasIssues(out var preparedException);
+                return (preparedException, "newEntity is null");
             }
 
-            if (newEntity.Attributes.Count == 0)
+            // New #2595 allow saving empty metadata decorator entities
+            if (newEntity.Attributes.Count == 0 && !newEntity.Type.Metadata.HasType(Decorators.SaveEmptyDecoratorId))
                 Add($"entity {count} doesn't have attributes (or they are invalid)");
 
-            var ok = BuildExceptionIfHasIssues(out preparedException, "EntityIsOk() done");
-            return wrapLog("", ok);
-        }
+            BuildExceptionIfHasIssues(out var preparedException2, "EntityIsOk() done");
+            return (preparedException2, "second test");
+        });
 
-        internal bool IfUpdateValidateAndCorrectIds(int count, IEntity newEntity, out HttpExceptionAbstraction preparedException)
+        internal (int? ResetId, HttpExceptionAbstraction Exception)
+            IfUpdateValidateAndCorrectIds(int count, IEntity newEntity) => Log.Func(l =>
         {
-            var wrapLog = Log.Call();
             var previousEntity = AppRead.Entities.Get(newEntity.EntityId)
                                  ?? AppRead.Entities.Get(newEntity.EntityGuid);
 
-            if (previousEntity != null)
+            int? resetId = default;
+            if (previousEntity == null)
+                return ((null, null), "no previous entity found");
+
+
+            l.A("found previous entity, will check types/ids/attributes");
+            CompareTypes(count, previousEntity, newEntity);
+
+            // for saving, ensure we are using the DB entity-ID 
+            if (newEntity.EntityId == 0)
             {
-                Log.Add("found previous entity, will check types/ids/attributes");
-                CompareTypes(count, previousEntity, newEntity);
-
-                // for saving, ensure we are using the DB entity-ID 
-                if (newEntity.EntityId == 0)
-                {
-                    Log.Add("found existing entity - will set the ID to that to overwrite");
-                    newEntity.ResetEntityId(previousEntity.EntityId);
-                }
-
-                CompareIdentities(count, previousEntity, newEntity);
-                CompareAttributes(count, previousEntity, newEntity);
+                l.A("found existing entity - will set the ID to that to overwrite");
+                resetId = previousEntity.EntityId;
+                //newEntity.ResetEntityId(previousEntity.EntityId);
             }
-            else
-                Log.Add("no previous entity found");
 
-            var ok = BuildExceptionIfHasIssues(out preparedException, "EntityIsOk() done");
+            CompareIdentities(count, previousEntity, newEntity);
+            CompareAttributes(count, previousEntity, newEntity);
 
-            wrapLog($"{ok}");
-            return ok;
-        }
+            BuildExceptionIfHasIssues(out var exception, "EntityIsOk() done");
+
+            return ((resetId, exception), "ok");
+        });
 
 
-        private void CompareTypes(int count, IEntityLight originalEntity, IEntityLight newEntity)
+        private void CompareTypes(int count, IEntityLight originalEntity, IEntityLight newEntity) =>
+            Log.Do($"ids:{newEntity.Type.NameId}/{originalEntity.Type.NameId}", () =>
+            {
+                if (originalEntity.Type.NameId != newEntity.Type.NameId)
+                    Add($"entity type mismatch on {count}");
+            });
+
+        private void CompareIdentities(int count, IEntityLight originalEntity, IEntityLight newEntity) =>
+            Log.Do($"ids:{newEntity.EntityId}/{originalEntity.EntityId}", () =>
+            {
+                if (originalEntity.EntityId != newEntity.EntityId)
+                    Add($"entity ID mismatch on {count} - {newEntity.EntityId}/{originalEntity.EntityId}");
+
+                Log.A($"Guids:{newEntity.EntityGuid}/{originalEntity.EntityGuid}");
+                if (originalEntity.EntityGuid != newEntity.EntityGuid)
+                    Add($"entity GUID mismatch on {count} - {newEntity.EntityGuid}/{originalEntity.EntityGuid}");
+            });
+
+        private void CompareAttributes(int count, IEntity original, IEntity ent) => Log.Do(() =>
         {
-            var wrapLog = Log.Call($"ids:{newEntity.Type.StaticName}/{originalEntity.Type.StaticName}");
-            if(originalEntity.Type.StaticName != newEntity.Type.StaticName)
-                Add($"entity type mismatch on {count}");
-            wrapLog("done");
-        }
-
-        private void CompareIdentities(int count, IEntityLight originalEntity, IEntityLight newEntity)
-        {
-            var wrapLog = Log.Call($"ids:{newEntity.EntityId}/{originalEntity.EntityId}");
-            if(originalEntity.EntityId != newEntity.EntityId)
-                Add($"entity ID mismatch on {count} - {newEntity.EntityId}/{originalEntity.EntityId}");
-
-            Log.Add($"Guids:{newEntity.EntityGuid}/{originalEntity.EntityGuid}");
-            if(originalEntity.EntityGuid != newEntity.EntityGuid)
-                Add($"entity GUID mismatch on {count} - {newEntity.EntityGuid}/{originalEntity.EntityGuid}");
-            wrapLog("done");
-        }
-
-        private void CompareAttributes(int count, IEntity original, IEntity ent)
-        {
-            var wrapLog = Log.Call();
-
             if (original.Attributes.Count != ent.Attributes.Count)
                 Add($"entity {count} has different amount " +
                     $"of attributes {ent.Attributes.Count} " +
@@ -192,8 +179,6 @@ namespace ToSic.Sxc.WebApi.Save
                         Add($"found different type on attribute {origAttr.Key} " +
                             $"- '{origAttr.Value.Type}'/'{newAttr.Value.Type}'");
                 }
-
-            wrapLog("done");
-        }
+        });
     }
 }

@@ -1,6 +1,7 @@
 ﻿using System;
-using Newtonsoft.Json;
+using System.Text.Json.Serialization;
 using ToSic.Eav.Apps.Enums;
+using ToSic.Eav.Data;
 using ToSic.Sxc.Blocks;
 using ToSic.Sxc.Data;
 
@@ -11,37 +12,39 @@ namespace ToSic.Sxc.Edit.ClientContextInfo
         /// <summary>
         /// Info how this item is edited (draft required / optional)
         /// </summary>
-        [JsonProperty("publishingMode")]
+        [JsonPropertyName("publishingMode")]
         public string PublishingMode { get; }
         
         /// <summary>
         /// ID of the reference item
         /// </summary>
-        [JsonProperty("id")]
+        [JsonPropertyName("id")]
         public int Id { get; }
 
         /// <summary>
         /// GUID of parent
         /// </summary>
-        [JsonProperty("parentGuid", NullValueHandling = NullValueHandling.Ignore)]
+        [JsonPropertyName("parentGuid")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public Guid? ParentGuid { get; }
         
         /// <summary>
         /// Field it's being referenced in
         /// </summary>
-        [JsonProperty("parentField", NullValueHandling = NullValueHandling.Ignore)]
+        [JsonPropertyName("parentField")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string ParentField { get; }
         
         /// <summary>
         /// Index / sort-order, where this is in the list of content-blocks
         /// </summary>
-        [JsonProperty("parentIndex")]
+        [JsonPropertyName("parentIndex")]
         public int ParentIndex { get; }
         
         /// <summary>
         /// If this should be regarded as part of page - relevant for page publishing features
         /// </summary>
-        [JsonProperty("partOfPage")]
+        [JsonPropertyName("partOfPage")]
         public bool PartOfPage { get; }
 
         internal ContentBlockReferenceDto(IBlock contentBlock, PublishingMode publishingMode)
@@ -54,10 +57,11 @@ namespace ToSic.Sxc.Edit.ClientContextInfo
             PublishingMode = publishingMode.ToString();
             
             // try to get more information about the block
-            if (!((contentBlock as BlockFromEntity)?.Entity is EntityInBlock specsEntity)) return;
-            ParentGuid = specsEntity.Parent;
-            ParentField = specsEntity.Field;
-            ParentIndex = specsEntity.SortOrder;
+            var decorator = (contentBlock as BlockFromEntity)?.Entity.GetDecorator<EntityInListDecorator>();
+            if (decorator == null) return;
+            ParentGuid = decorator.Parent;
+            ParentField = decorator.Field;
+            ParentIndex = decorator.SortOrder;
         }
     }
 

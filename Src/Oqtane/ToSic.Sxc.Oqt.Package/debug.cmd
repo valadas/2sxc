@@ -1,48 +1,74 @@
-@set Dev2sxcOqtaneRoot=c:\Projects\2sxc\octane\oqtane.framework\Oqtane.Server\
-@set OqtaneBin=%Dev2sxcOqtaneRoot%bin\Debug\netcoreapp3.1\
+@Echo(
+@Echo the build folder (Debug or DebugOqtane) must be passed in as a parameter
+@set BuildFolder=%1
+@set Dev2sxcOqtaneRoot=c:\Projects\2sxc\oqtane\oqtane.framework\Oqtane.Server\
+@set OqtaneBin=%Dev2sxcOqtaneRoot%bin\%BuildFolder%\net6.0\
+@set PackageName=ToSic.Sxc.Oqtane
 
-@REM 2sxc Oqtane - Client
-XCOPY "..\ToSic.Sxc.Oqt.Client\bin\Debug\netstandard2.1\ToSic.*.dll" "%OqtaneBin%" /Y
-XCOPY "..\ToSic.Sxc.Oqt.Client\bin\Debug\netstandard2.1\ToSic.*.pdb" "%OqtaneBin%" /Y
+@Echo(
+@Echo 2sxc Oqtane - Client
+XCOPY "..\ToSic.Sxc.Oqt.Client\bin\%BuildFolder%\net6.0\ToSic.*.dll" "%OqtaneBin%" /Y
+XCOPY "..\ToSic.Sxc.Oqt.Client\bin\%BuildFolder%\net6.0\ToSic.*.pdb" "%OqtaneBin%" /Y
 
-@REM 2sxc Oqtane - Server
-XCOPY "..\ToSic.Sxc.Oqt.Server\bin\Debug\netcoreapp3.1\ToSic.*.dll" "%OqtaneBin%" /Y
-XCOPY "..\ToSic.Sxc.Oqt.Server\bin\Debug\netcoreapp3.1\ToSic.*.pdb" "%OqtaneBin%" /Y
+@Echo(
+@Echo 2sxc Oqtane - Server
+XCOPY "..\ToSic.Sxc.Oqt.Server\bin\%BuildFolder%\net6.0\ToSic.*.dll" "%OqtaneBin%" /Y
+XCOPY "..\ToSic.Sxc.Oqt.Server\bin\%BuildFolder%\net6.0\ToSic.*.pdb" "%OqtaneBin%" /Y
 
-@REM 2sxc Oqtane - Server Framework DLLs
-XCOPY "..\ToSic.Sxc.Oqt.Server\bin\Debug\netcoreapp3.1\Microsoft.AspNetCore.Mvc.Razor.*.dll" "%OqtaneBin%" /Y
-XCOPY "..\ToSic.Sxc.Oqt.Server\bin\Debug\netcoreapp3.1\Microsoft.AspNetCore.Razor.*" "%OqtaneBin%" /Y
-XCOPY "..\ToSic.Sxc.Oqt.Server\bin\Debug\netcoreapp3.1\Microsoft.CodeAnalys*.*" "%OqtaneBin%" /Y
-@REM XCOPY "..\ToSic.Sxc.Oqt.Server\bin\Debug\netcoreapp3.1\Microsoft.Extensions.DependencyModel.dll" "%OqtaneBin%" /Y
+@Echo(
+@Echo 2sxc Oqtane - Server Framework DLLs
+XCOPY "..\ToSic.Sxc.Oqt.Server\bin\%BuildFolder%\net6.0\Microsoft.AspNetCore.Mvc.Razor.*.dll" "%OqtaneBin%" /Y
+XCOPY "..\ToSic.Sxc.Oqt.Server\bin\%BuildFolder%\net6.0\Microsoft.AspNetCore.Razor.*" "%OqtaneBin%" /Y
+XCOPY "..\ToSic.Sxc.Oqt.Server\bin\%BuildFolder%\net6.0\Microsoft.CodeAnalys*.*" "%OqtaneBin%" /Y
+XCOPY "..\ToSic.Sxc.Oqt.Server\bin\%BuildFolder%\net6.0\Microsoft.Extensions.DependencyModel.dll" "%OqtaneBin%" /Y
 
-@Echo Copying refs folder for runtime compilation of Razor cshtml
-XCOPY "..\ToSic.Sxc.Oqt.Server\bin\Debug\netcoreapp3.1\refs\*.dll" "%OqtaneBin%refs\" /Y
+@Echo(
+@Echo 2sxc Oqtane - 3rd party deps
+XCOPY "..\ToSic.Sxc.Oqt.Server\bin\%BuildFolder%\net6.0\CsvHelper.dll" "%OqtaneBin%" /Y
 
-@REM 2sxc Oqtane - Shared
-XCOPY "..\ToSic.Sxc.Oqt.Shared\bin\Debug\netstandard2.1\ToSic.*.dll" "%OqtaneBin%" /Y
-XCOPY "..\ToSic.Sxc.Oqt.Shared\bin\Debug\netstandard2.1\ToSic.*.pdb" "%OqtaneBin%" /Y
+@Echo(
+@Echo 2sxc Oqtane - Shared
+XCOPY "..\ToSic.Sxc.Oqt.Shared\bin\%BuildFolder%\net6.0\ToSic.*.dll" "%OqtaneBin%" /Y /EXCLUDE:ToSic.Sxc.Oqtane.Package.dll
+XCOPY "..\ToSic.Sxc.Oqt.Shared\bin\%BuildFolder%\net6.0\ToSic.*.pdb" "%OqtaneBin%" /Y /EXCLUDE:ToSic.Sxc.Oqtane.Package.pdb
 
-@REM 2sxc Oqtane - Client Assets
-XCOPY "..\ToSic.Sxc.Oqt.Server\wwwroot\Modules\ToSic.Sxc\*" "%Dev2sxcOqtaneRoot%wwwroot\Modules\ToSic.Sxc\" /Y /S /I
+@Echo(
+@Echo 2sxc Oqtane - Client Assets
+XCOPY "..\ToSic.Sxc.Oqt.Server\wwwroot\Modules\%PackageName%\*" "%Dev2sxcOqtaneRoot%wwwroot\Modules\%PackageName%\" /Y /S /I
 
+@Echo(
+@Echo nuget dependencies - oqt-imageflow
+XCOPY "..\..\packages\tosic.imageflow.oqtane\1.0.4\lib\net5.0\*" "%OqtaneBin%" /Y
+XCOPY "..\..\packages\tosic.imageflow.oqtane\1.0.4\runtimes\*" "%OqtaneBin%\runtimes" /S /C /Y
 
+@Echo(
+@Echo Copy Koi DLLs
+XCOPY "..\..\..\Dependencies\Koi\net6.0\Connect.Koi.dll" "%OqtaneBin%" /Y
+XCOPY "..\..\..\Dependencies\Koi\net6.0\Connect.Koi.pdb" "%OqtaneBin%" /Y
 
+@Echo(
+@Echo Copy RazorBlade DLLs from Debug
+XCOPY "..\..\..\Dependencies\RazorBlade\Release\net6.0\ToSic.Razor.dll" "%OqtaneBin%" /Y
+XCOPY "..\..\..\Dependencies\RazorBlade\Release\net6.0\ToSic.Razor.pdb" "%OqtaneBin%" /Y
 
-@set BuildTarget=c:\Projects\2sxc\octane\oqtane.framework\Oqtane.Server\wwwroot\Modules\ToSic.Sxc
+@Echo(
+@Echo the target for js, css, json etc.
+@set BuildTarget=c:\Projects\2sxc\oqtane\oqtane.framework\Oqtane.Server\wwwroot\Modules\%PackageName%
 
-@REM Copy the data folders
-robocopy /mir "..\..\Data\.data\ " "%BuildTarget%\.data\ "
-robocopy /mir "..\..\Data\.databeta\ " "%BuildTarget%\.databeta\ "
-robocopy /mir "..\..\Data\.data-custom\ " "%BuildTarget%\.data-custom\ "
+@Echo(
+@Echo Copy ImportExport instructions
+robocopy /mir "..\ToSic.Sxc.Oqt.Server\Content\2sxc\system\ImportExport\ " "%Dev2sxcOqtaneRoot%\Content\2sxc\system\ImportExport\ "
 
-@REM ... find better source
-@REM @set Dev2sxcAssets=C:\Projects\2sxc\2sxc\Src\Mvc\Website\wwwroot
+@Echo(
+@Echo Copy the data folders
+robocopy /mir "..\..\Data\App_Data\ " "%Dev2sxcOqtaneRoot%\Content\2sxc\system\App_Data\ "
+robocopy /s "..\..\..\..\2sxc-dev-materials\App_Data\ " "%Dev2sxcOqtaneRoot%\Content\2sxc\system\App_Data\ "
+robocopy /mir "..\..\Data\assets\ " "%BuildTarget%\assets\ "
 
-@REM Copy 2sxc JS stuff
+@Echo(
+@Echo Copy 2sxc JS stuff
 robocopy /mir "%Dev2sxcAssets%\js\ " "%BuildTarget%\js\ "
 robocopy /mir "%Dev2sxcAssets%\dist\ " "%BuildTarget%\dist\ "
 robocopy /mir "%Dev2sxcAssets%\system\ " "%BuildTarget%\system\ "
 
-@echo Copied all files to this Website target: '%BuildTarget%'
-
-
+@Echo(
+@echo Copied all files to this Website target: '%BuildTarget%' in mode Debug

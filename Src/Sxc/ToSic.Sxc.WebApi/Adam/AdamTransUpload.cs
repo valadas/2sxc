@@ -1,34 +1,31 @@
 ﻿using System;
 using System.IO;
+using ToSic.Lib.Logging;
 using ToSic.Eav.Security.Permissions;
+using ToSic.Eav.WebApi.Dto;
 using ToSic.Eav.WebApi.Errors;
 using ToSic.Sxc.Adam;
-using ToSic.Sxc.Context;
 
 namespace ToSic.Sxc.WebApi.Adam
 {
     public partial class AdamTransUpload<TFolderId, TFileId>: AdamTransactionBase<AdamTransUpload<TFolderId, TFileId>, TFolderId, TFileId>
     {
-        public AdamTransUpload(Lazy<AdamContext<TFolderId, TFileId>> adamState, IContextResolver ctxResolver) : base(adamState, ctxResolver, "Adm.TrnUpl") { }
+        public AdamItemDtoMaker<TFolderId, TFileId> DtoMaker { get; }
 
-        public UploadResultDto UploadOne(Stream stream, string subFolder, string fileName)
+        public AdamTransUpload(MyServices services) : base(services, "Adm.TrnUpl")
         {
-            var file = UploadOne(stream, fileName, subFolder, false);
-
-            return new UploadResultDto
-            {
-                Success = true,
-                Error = "",
-                Name = file.Name,
-                Id = file.Id,
-                Path = file.Url,
-                Type = Classification.TypeName(file.Extension)
-            };
+            DtoMaker = Services.AdamDtoMaker.New().Init(AdamContext);
         }
 
-        public IFile UploadOne(Stream stream, string originalFileName, string subFolder, bool skipFieldAndContentTypePermissionCheck)
+        public AdamItemDto UploadOne(Stream stream, string subFolder, string fileName)
         {
-            Log.Add($"upload one subfold:{subFolder}, file: {originalFileName}");
+            var file = UploadOne(stream, fileName, subFolder, false);
+            return DtoMaker.Create(file);
+        }
+
+        public File<TFolderId, TFileId> UploadOne(Stream stream, string originalFileName, string subFolder, bool skipFieldAndContentTypePermissionCheck)
+        {
+            Log.A($"upload one subfold:{subFolder}, file: {originalFileName}");
 
             // make sure the file name we'll use doesn't contain injected path-traversal
             originalFileName = Path.GetFileName(originalFileName);
@@ -44,10 +41,10 @@ namespace ToSic.Sxc.WebApi.Adam
                     throw permissionException;
             }
 
-            var folder = AdamContext.AdamRoot.Folder();
+            var folder = AdamContext.AdamRoot.Folder(autoCreate: true);
 
             if (!string.IsNullOrEmpty(subFolder))
-                folder = AdamContext.AdamRoot.Folder(subFolder, false);
+                folder = AdamContext.AdamRoot.Folder(subFolder, true);
 
             // start with a security check...
             var fs = AdamContext.AdamManager.AdamFs;
@@ -64,7 +61,7 @@ namespace ToSic.Sxc.WebApi.Adam
             #region check content-type extensions...
 
             // Check file size and extension
-            var fileName = string.Copy(originalFileName);
+            var fileName = originalFileName;
             if (!AdamContext.Security.ExtensionIsOk(fileName, out var exceptionAbstraction))
                 throw exceptionAbstraction;
 
@@ -77,18 +74,20 @@ namespace ToSic.Sxc.WebApi.Adam
 
             #endregion
 
-            var maxSizeKb = fs.MaxUploadKb();
-            if (stream.Length > 1024 * maxSizeKb)
-                throw new Exception($"file too large - more than {maxSizeKb}Kb");
+            var maxSize = (long)fs.MaxUploadKb() * 1024; // convert to bytes (without overflow that happens with int)
+            var fileSize = stream.Length;
+            Log.A($"file size: {fileSize} (max size is {maxSize})");
+            if (fileSize > maxSize)
+                throw new Exception($"file too large, {fileSize} is more than {maxSize}");
 
             // remove forbidden / troubling file name characters
             fileName = fileName
                 .Replace("+", "plus")
                 .Replace("%", "per")
                 .Replace("#", "hash");
-
+            
             if (fileName != originalFileName)
-                Log.Add($"cleaned file name from'{originalFileName}' to '{fileName}'");
+                Log.A($"cleaned file name from'{originalFileName}' to '{fileName}'");
 
             var eavFile = fs.Add(parentFolder, stream, fileName, true);
 

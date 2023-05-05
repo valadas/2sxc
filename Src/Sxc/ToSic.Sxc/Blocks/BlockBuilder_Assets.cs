@@ -1,22 +1,24 @@
 ﻿using System.Collections.Generic;
-using ToSic.Sxc.Engines;
-using ToSic.Sxc.Web;
 using System.Linq;
 
 namespace ToSic.Sxc.Blocks
 {
     public partial class BlockBuilder
     {
-        public List<ClientAssetInfo> Assets { get; private set; } = new List<ClientAssetInfo>();
+        /// <summary>
+        /// This list is only populated on the root builder. Child builders don't actually use this.
+        /// </summary>
+        public IList<IDependentApp> DependentApps { get; } = new List<IDependentApp>();
 
-        private void TransferEngineAssets(IEngine engine)
+
+        private void PreSetAppDependenciesToRoot()
         {
-            if (!engine.Assets.Any()) return;
-            if (RootBuilder is BlockBuilder parentBlock)
-            {
-                parentBlock.Assets.AddRange(engine.Assets);
-                parentBlock.Assets = parentBlock.Assets.OrderBy(a => a.PosInPage).ToList();
-            }
+            if (Block == null) return;
+            if (!(RootBuilder is BlockBuilder parentBlock)) return;
+            if (Block.AppId != 0)// && Block.App?.AppState != null)
+                if (parentBlock.DependentApps.All(a => a.AppId != Block.AppId)) // add dependent appId only ounce
+                    parentBlock.DependentApps.Add(new DependentApp { AppId = Block.AppId });
         }
+
     }
 }

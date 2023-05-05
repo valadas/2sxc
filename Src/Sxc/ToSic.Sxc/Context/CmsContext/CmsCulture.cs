@@ -1,5 +1,5 @@
 ﻿using ToSic.Eav.Context;
-using ToSic.Eav.Documentation;
+using ToSic.Lib.Documentation;
 
 namespace ToSic.Sxc.Context
 {
@@ -13,8 +13,8 @@ namespace ToSic.Sxc.Context
             _parent = parent;
         }
 
-        public string DefaultCode => _parent.Context.Site.DefaultCultureCode;
+        public string DefaultCode => _parent.CtxSite.Site.DefaultCultureCode;
 
-        public string CurrentCode => _parent.Context.Site.SafeCurrentCultureCode();
+        public string CurrentCode => _parent.CtxSite.Site.SafeCurrentCultureCode();
     }
 }

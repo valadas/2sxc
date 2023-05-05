@@ -1,18 +1,14 @@
-﻿using System.Collections.Generic;
+﻿using DotNetNuke.Security;
+using DotNetNuke.Web.Api;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Web.Http;
-using DotNetNuke.Security;
-using DotNetNuke.Web.Api;
 using ToSic.Eav.ImportExport.Options;
-using ToSic.Eav.Security.Permissions;
-using ToSic.Eav.WebApi;
+using ToSic.Eav.WebApi.Admin;
 using ToSic.Eav.WebApi.Dto;
-using ToSic.Eav.WebApi.PublicApi;
-using ToSic.Sxc.Context;
-using ToSic.Sxc.Dnn.Run;
+using ToSic.Eav.WebApi.Plumbing;
 using ToSic.Sxc.Dnn.WebApi.Logging;
 using ToSic.Sxc.WebApi;
-using ToSic.Sxc.WebApi.Cms;
 using Guid = System.Guid;
 
 namespace ToSic.Sxc.Dnn.WebApi.Admin
@@ -21,91 +17,49 @@ namespace ToSic.Sxc.Dnn.WebApi.Admin
     /// Proxy Class to the EAV EntitiesController (Web API Controller)
     /// </summary>
     /// <remarks>
-    /// Because the JSON call is made in a new window, they won't contain any http-headers like module-id or security token. 
-    /// So we can't use the classic protection attributes like:
-    /// - [SupportedModules("2sxc,2sxc-app")]
+    /// Because download JSON call is made in a new window, they won't contain any http-headers like module-id or security token. 
+    /// So we can't use the classic protection attributes to the class like:
+    /// - [SupportedModules(DnnSupportedModuleNames)]
     /// - [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.Admin)]
     /// - [ValidateAntiForgeryToken]
-    /// Instead, the method itself must do additional security checking.
+    /// Instead, each method must have all attributes, or do additional security checking.
     /// Security checking is possible, because the cookie still contains user information
     /// </remarks>
-    [AllowAnonymous]
     [DnnLogExceptions]
-	public class EntityController : SxcApiControllerBase, IEntitiesController
+	public class EntityController : SxcApiControllerBase<EntityControllerReal<HttpResponseMessage>>, IEntityController<HttpResponseMessage>
 	{
-        protected override string HistoryLogName => "Api.EntCnt";
+        public EntityController(): base(EntityControllerReal<HttpResponseMessage>.LogSuffix) { }
 
-        private IContextResolver ContextResolver
-            => _contextResolver ?? (_contextResolver = GetService<IContextResolver>().Init(Log));
-        private IContextResolver _contextResolver;
 
-        /// <summary>
-        /// Used to be Entities/GetOllOfTypeForAdmin
-        /// Used to be Entities/GetEntities
-        /// </summary>
-        /// <param name="appId"></param>
-        /// <param name="contentType"></param>
-        /// <returns></returns>
+        /// <inheritdoc/>
         [HttpGet]
         [ValidateAntiForgeryToken]
-        [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.Admin)]
-        public IEnumerable<Dictionary<string, object>> List(int appId, string contentType)
-        {
-            var appContext = ContextResolver.BlockOrApp(appId);
-            return GetService<EntityApi>()
-                .InitOrThrowBasedOnGrants(appContext, appContext.AppState, contentType,
-                    GrantSets.ReadSomething, Log)
-                .GetEntitiesForAdmin(contentType);
-        }
+        [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.Edit)]
+        public IEnumerable<Dictionary<string, object>> List(int appId, string contentType) => Real.List(appId, contentType);
 
 
+        /// <inheritdoc/>
         [HttpDelete]
         [ValidateAntiForgeryToken]
-        // todo: unsure why only Edit - is this used anywhere else than admin?
         [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.Edit)]
-        public void Delete(string contentType, int id, int appId, bool force = false)
-        {
-            var appContext = ContextResolver.BlockOrApp(appId);
-            GetService<EntityApi>()
-                .InitOrThrowBasedOnGrants(appContext, appContext.AppState, contentType,
-                    GrantSets.DeleteSomething, Log)
-                .Delete(contentType, id, force);
-        }
-
-        [HttpDelete]
-        [ValidateAntiForgeryToken]
-        // todo: unsure why only Edit - is this used anywhere else than admin?
-        [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.Edit)]
-        public void Delete(string contentType, Guid guid, int appId, bool force = false)
-        {
-            var appContext = ContextResolver.BlockOrApp(appId);
-            GetService<EntityApi>()
-                .InitOrThrowBasedOnGrants(appContext, appContext.AppState, contentType,
-                    GrantSets.DeleteSomething, Log)
-                .Delete(contentType, guid, force);
-        }
+        public void Delete(string contentType, int appId, int? id = null, Guid? guid = null, bool force = false, int? parentId = null, string parentField = null)
+        => Real.Delete(contentType, appId, id, guid, force, parentId, parentField);
 
 
-        /// <summary>
-        /// Used to be GET ContentExport/DownloadEntityAsJson
-        /// </summary>
+        /// <inheritdoc/>
         [HttpGet]
         [AllowAnonymous] // will do security check internally
         public HttpResponseMessage Json(int appId, int id, string prefix, bool withMetadata)
-            => GetService<ContentExportApi>().Init(appId, Log).DownloadEntityAsJson(new DnnUser(), id, prefix, withMetadata);
+        {
+            // Make sure the Scoped ResponseMaker has this controller context
+            var responseMaker = (ResponseMakerNetFramework)GetService<ResponseMaker<HttpResponseMessage>>();
+            responseMaker.Init(this);
 
-        /// <summary>
-        /// Used to be GET ContentExport/ExportContent
-        /// </summary>
-        /// <param name="appId"></param>
-        /// <param name="language"></param>
-        /// <param name="defaultLanguage"></param>
-        /// <param name="contentType"></param>
-        /// <param name="recordExport"></param>
-        /// <param name="resourcesReferences"></param>
-        /// <param name="languageReferences"></param>
-        /// <param name="selectedIds"></param>
-        /// <returns></returns>
+            return Real.Json(appId, id, prefix, withMetadata);
+        }
+
+
+        /// <inheritdoc/>
         [HttpGet]
         [AllowAnonymous] // will do security check internally
         public HttpResponseMessage Download(
@@ -113,49 +67,43 @@ namespace ToSic.Sxc.Dnn.WebApi.Admin
             string language,
             string defaultLanguage,
             string contentType,
-            ExportSelection recordExport, ExportResourceReferenceMode resourcesReferences,
-            ExportLanguageResolution languageReferences, string selectedIds = null)
-            => GetService<ContentExportApi>().Init(appId, Log).ExportContent(
-                new DnnUser(),
-                language, defaultLanguage, contentType,
-                recordExport, resourcesReferences,
+            ExportSelection recordExport, 
+            ExportResourceReferenceMode resourcesReferences,
+            ExportLanguageResolution languageReferences, 
+            string selectedIds = null)
+        {
+            // Make sure the Scoped ResponseMaker has this controller context
+            var responseMaker = (ResponseMakerNetFramework)GetService<ResponseMaker<HttpResponseMessage>>();
+            responseMaker.Init(this);
+
+            return Real.Download(appId, language, defaultLanguage, contentType, recordExport, resourcesReferences,
                 languageReferences, selectedIds);
+        }
 
-        /// <summary>
-        /// This seems to be for XML import of a list
-        /// Used to be POST ContentImport/EvaluateContent
-        /// </summary>
+
+        /// <inheritdoc/>
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.Edit)]
-        public ContentImportResultDto XmlPreview(ContentImportArgsDto args)
-            => GetService<ContentImportApi>().Init(args.AppId, Log).XmlPreview(args);
+        public ContentImportResultDto XmlPreview(ContentImportArgsDto args) => Real.XmlPreview(args);
 
 
-        /// <summary>
-        /// This seems to be for XML import of a list
-        /// Used to be POST ContentImport/ImportContent
-        /// </summary>
+        /// <inheritdoc/>
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.Edit)]
-        public ContentImportResultDto XmlUpload(ContentImportArgsDto args)
-            => GetService<ContentImportApi>().Init(args.AppId, Log).XmlImport(args);
+        public ContentImportResultDto XmlUpload(ContentImportArgsDto args) => Real.XmlUpload(args);
 
 
-        /// <summary>
-        /// This is the single-item json import
-        /// Used to be POST ContentImport/Import
-        /// </summary>
+        /// <inheritdoc/>
         [HttpPost]
         [ValidateAntiForgeryToken]
         [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.Edit)]
-        public bool Upload(EntityImportDto args) => GetService<ContentImportApi>().Init(args.AppId, Log).Import(args);
+        public bool Upload(EntityImportDto args) => Real.Upload(args);
 
 
-        // New feature in 11.03 - Usage Statistics
-        // not final yet, so no [HttpGet]
-        public dynamic Usage(int appId, Guid guid) => GetService<EntityBackend>().Init(Log).Usage(appId, guid);
-
+        ///// <inheritdoc/>
+        //// not final yet, so no [HttpGet]
+        //public dynamic Usage(int appId, Guid guid) => Real.Usage(appId, guid);
     }
 }
