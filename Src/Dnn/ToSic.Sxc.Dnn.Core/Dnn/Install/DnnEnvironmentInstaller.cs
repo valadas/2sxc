@@ -1,29 +1,28 @@
-﻿using ToSic.Eav.Configuration;
-using ToSic.Lib.DI;
-using ToSic.Lib.Logging;
-using ToSic.Lib.Services;
-using ToSic.Sxc.Run;
+﻿using ToSic.Eav.Apps.Sys.AppJson;
+using ToSic.Sxc.Sys.Integration.Installation;
+using ToSic.Sys.Configuration;
 
-namespace ToSic.Sxc.Dnn.Install
+namespace ToSic.Sxc.Dnn.Install;
+
+internal partial class DnnEnvironmentInstaller : ServiceBase, IEnvironmentInstaller
 {
-    public partial class DnnEnvironmentInstaller: ServiceBase, IEnvironmentInstaller
+    public static bool SaveUnimportantDetails = true;
+
+    private readonly DnnInstallLogger _installLogger;
+    private readonly LazySvc<IGlobalConfiguration> _globalConfiguration;
+    private readonly LazySvc<IAppJsonConfigurationService> _appJsonService;
+
+    /// <summary>
+    /// Instance initializers...
+    /// </summary>
+    public DnnEnvironmentInstaller(ILogStore logStore, DnnInstallLogger installLogger, LazySvc<IGlobalConfiguration> globalConfiguration, LazySvc<IAppJsonConfigurationService> appJsonService) : base("Dnn.InstCo")
     {
-        public static bool SaveUnimportantDetails = true;
-
-        private readonly DnnInstallLogger _installLogger;
-        private readonly LazySvc<IGlobalConfiguration> _globalConfiguration;
-
-        /// <summary>
-        /// Instance initializers...
-        /// </summary>
-        public DnnEnvironmentInstaller(ILogStore logStore, DnnInstallLogger installLogger, LazySvc<IGlobalConfiguration> globalConfiguration) : base("Dnn.InstCo")
-        {
-            logStore.Add(LogNames.LogStoreInstallation, Log);
-            ConnectServices(
-                _installLogger = installLogger,
-                _globalConfiguration = globalConfiguration
-            );
-        }
-        
+        _appJsonService = appJsonService;
+        logStore.Add(LogNames.LogStoreInstallation, Log);
+        ConnectLogs([
+            _installLogger = installLogger,
+            _globalConfiguration = globalConfiguration
+        ]);
     }
+
 }

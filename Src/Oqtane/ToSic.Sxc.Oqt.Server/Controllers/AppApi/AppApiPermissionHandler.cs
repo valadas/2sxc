@@ -2,47 +2,40 @@
 using Microsoft.AspNetCore.Http;
 using Oqtane.Infrastructure;
 using Oqtane.Security;
-using System.Threading.Tasks;
-using ToSic.Sxc.Oqt.Server.Integration;
-using ToSic.Sxc.Oqt.Server.WebApi;
+using ToSic.Eav.WebApi.Sys.Helpers.Http;
+using ToSic.Sxc.Context.Sys;
 
-namespace ToSic.Sxc.Oqt.Server.Controllers.AppApi
+namespace ToSic.Sxc.Oqt.Server.Controllers.AppApi;
+
+/// <summary>
+/// Extend Oqtane default PermissionHandler to provide Oqt required "entityId"
+/// if missing from header "moduleId", or query string, or route value.
+/// </summary>
+[PrivateApi]
+internal class AppApiPermissionHandler(
+    IHttpContextAccessor httpContextAccessor,
+    IUserPermissions userPermissions,
+    ILogManager logger,
+    RequestHelper requestHelper)
+    : PermissionHandler(httpContextAccessor, userPermissions, logger)
 {
-    /**
-     * Extend Oqtane default PermissionHandler to provide Oqt required "entityId"
-     * if missing from header "moduleId", or query string, or route value.
-     */
-    public class AppApiPermissionHandler : PermissionHandler
+    private readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
+
+    protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
     {
-        private readonly IHttpContextAccessor _httpContextAccessor;
-        private readonly IUserPermissions _userPermissions;
-        private readonly ILogManager _logger;
-        private readonly RequestHelper _requestHelper;
-
-        public AppApiPermissionHandler(IHttpContextAccessor httpContextAccessor, IUserPermissions userPermissions, ILogManager logger, RequestHelper requestHelper) : base(httpContextAccessor, userPermissions, logger)
+        var httpContext = _httpContextAccessor.HttpContext;
+        if (!httpContext.Request.Query.ContainsKey("entityid"))
         {
-            _httpContextAccessor = httpContextAccessor;
-            _userPermissions = userPermissions;
-            _logger = logger;
-            _requestHelper = requestHelper;
+            var moduleId = requestHelper.GetTypedHeader(ContextConstants.ModuleIdKey,
+                requestHelper.GetQueryString(ContextConstants.ModuleIdKey,
+                    requestHelper.GetRouteValuesString(ContextConstants.ModuleIdKey,
+                        -1)));
+            var queryString = httpContext.Request.QueryString.Add(new($"?entityid={moduleId}"));
+            httpContext.Request.QueryString = queryString;
         }
 
-        protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
-        {
-            var httpContext = _httpContextAccessor.HttpContext;
-            if (!httpContext.Request.Query.ContainsKey("entityid"))
-            {
-                var moduleId = _requestHelper.GetTypedHeader(Sxc.WebApi.WebApiConstants.HeaderInstanceId,
-                    _requestHelper.GetQueryString(WebApiConstants.ModuleId,
-                        _requestHelper.GetRouteValuesString(WebApiConstants.ModuleId,
-                            -1)));
-                var queryString = httpContext.Request.QueryString.Add(new($"?entityid={moduleId}"));
-                httpContext.Request.QueryString = queryString;
-            }
+        base.HandleRequirementAsync(context, requirement);
 
-            base.HandleRequirementAsync(context, requirement);
-
-            return Task.CompletedTask;
-        }
+        return Task.CompletedTask;
     }
 }

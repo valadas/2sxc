@@ -1,127 +1,98 @@
-﻿using System;
-using System.IO;
-using System.Web.Hosting;
-using System.Web.WebPages;
-using Custom.Hybrid;
-using ToSic.Lib.Documentation;
-using ToSic.Lib.Helpers;
-using ToSic.Lib.Logging;
-using ToSic.Sxc.Code;
+﻿using Custom.Razor.Sys;
 using ToSic.Sxc.Dnn;
-using ToSic.Sxc.Dnn.Web;
-using ToSic.Sxc.Engines.Razor;
-using ToSic.Sxc.Services;
-using File = System.IO.File;
-using IHasLog = ToSic.Lib.Logging.IHasLog;
-using ILog = ToSic.Lib.Logging.ILog;
+using ToSic.Sxc.Dnn.Razor;
+using ToSic.Sxc.Render.Sys.Specs;
+using ToSic.Sxc.Sys.ExecutionContext;
+using IHasLog = ToSic.Sys.Logging.IHasLog;
+using ILog = ToSic.Sys.Logging.ILog;
 
-namespace ToSic.Sxc.Web
+namespace ToSic.Sxc.Web;
+
+/// <summary>
+/// The base page type for razor pages
+/// It's the foundation for RazorPage and the old SexyContent page
+/// It only contains internal wiring stuff, so not to be published
+/// </summary>
+[PrivateApi("internal class only!")]
+[ShowApiWhenReleased(ShowApiMode.Never)]
+public abstract class RazorComponentBase : WebPageBase, IRazor, IHasCodeLog, IHasLog, IDnnRazorCompatibility, ICompatibilityLevel
 {
+    #region Constructor / Setup
+
     /// <summary>
-    /// The base page type for razor pages
-    /// It's the foundation for RazorPage and the old SexyContent page
-    /// It only contains internal wiring stuff, so not to be published
+    /// Special helper to move all Razor logic into a separate class.
+    /// For architecture of Composition over Inheritance.
     /// </summary>
-    [PrivateApi("internal class only!")]
-    public abstract partial class RazorComponentBase: WebPageBase, ICreateInstance, IHasCodeLog, IHasLog, IRazor, IDnnRazor
+    [PrivateApi]
+    internal DnnRazorHelper RzrHlp => field ??= new DnnRazorHelper().Init(this);
+
+    /// <summary>
+    /// Internal access to the underlying RenderPage.
+    /// This is needed by the render helper to provide the default behavior
+    /// if we are not using Roslyn
+    /// </summary>
+    internal virtual HelperResult BaseRenderPage(string path, RenderSpecs renderSpecs)
     {
-        public IHtmlHelper Html => _html ?? (_html = new HtmlHelper(this, _DynCodeRoot?.Block?.Context.User.IsSystemAdmin ?? false, _DynCodeRoot?.GetService<IFeaturesService>()));
-        private IHtmlHelper _html;
+        var data = renderSpecs.Data;
+        var l = (this as IHasLog).Log.Fn<HelperResult>($"{nameof(path)}: '{path}', {nameof(data)}: {data != null}; partialSpecs: {renderSpecs.PartialSpecs}");
 
-        [PrivateApi]
-        public IDynamicCodeRoot _DynCodeRoot { get; private set; }
-
-
-        /// <summary>
-        /// Override the base class ConfigurePage, and additionally update internal objects so sub-pages work just like the master
-        /// </summary>
-        /// <param name="parentPage"></param>
-        [PrivateApi]
-        protected override void ConfigurePage(WebPageBase parentPage)
-        {
-            base.ConfigurePage(parentPage);
-
-            // Child pages need to get their context from the Parent
-            Context = parentPage.Context;
-
-            // Return if parent page is not a SexyContentWebPage
-            if (!(parentPage is RazorComponentBase typedParent)) return;
-
-
-            // Forward the context
-            ConnectToRoot(typedParent._DynCodeRoot);
-            try
-            {
-                Log15.A("@RenderPage:" + VirtualPath);
-            } catch { /* ignore */ }
-        }
-
-        #region Compile Helpers
-
-        public string CreateInstancePath { get; set; }
-
-        /// <summary>
-        /// Creates instances of the shared pages with the given relative path
-        /// </summary>
-        /// <returns></returns>
-        public dynamic CreateInstance(string virtualPath,
-            string noParamOrder = Eav.Parameters.Protector,
-            string name = null,
-            string relativePath = null,
-            bool throwOnError = true)
-        {
-            var wrapLog = Log15.Fn<object>($"{virtualPath}, ..., {name}");
-            var path = NormalizePath(virtualPath);
-            VerifyFileExists(path);
-            var result = path.EndsWith(CodeCompiler.CsFileExtension)
-                ? _DynCodeRoot.CreateInstance(path, noParamOrder, name, null, throwOnError)
-                : CreateInstanceCshtml(path);
-            return wrapLog.Return((object)result, "ok");
-        }
-
-        [PrivateApi]
-        // ReSharper disable once InconsistentNaming
-        protected string _ErrorWhenUsingCreateInstanceCshtml = null;
-        
-        protected dynamic CreateInstanceCshtml(string path)
-        {
-            if (_ErrorWhenUsingCreateInstanceCshtml != null)
-                throw new NotSupportedException(_ErrorWhenUsingCreateInstanceCshtml);
-            var webPage = (RazorComponentBase)CreateInstanceFromVirtualPath(path);
-            webPage.ConfigurePage(this);
-            return webPage;
-        }
-
-        protected static void VerifyFileExists(string path)
-        {
-            if (!File.Exists(HostingEnvironment.MapPath(path)))
-                throw new FileNotFoundException("The shared file does not exist.", path);
-        }
-
-
-        #endregion
-
-        #region IHasLog
-
-        /// <inheritdoc />
-        public ICodeLog Log => _codeLog.Get(() => new CodeLog(Log15));
-        private readonly GetOnce<ICodeLog> _codeLog = new GetOnce<ICodeLog>();
-
-        [PrivateApi] public ILog Log15 { get; } = new Log("Rzr.Comp");
-
-        /// <summary>
-        /// EXPLICIT NEW Log implementation (to ensure that new IHasLog.Log interface is implemented)
-        /// </summary>
-        [PrivateApi] ILog IHasLog.Log => Log15;
-
-        #endregion
-
-        public void ConnectToRoot(IDynamicCodeRoot codeRoot) => Log15.Do(message: "connected", action: () =>
-        {
-            _DynCodeRoot = codeRoot;
-            this.LinkLog(codeRoot?.Log);
-            _codeLog.Reset(); // Reset inner log, so it will reconnect
-        });
-
+        // Do the proper RenderPage of the base class, and also pass in the RenderSpecs
+        // because they might be used to communicate caching settings back.
+        return data == null
+            ? l.Return(base.RenderPage(path, new { }, renderSpecs), "default render, no data")
+            : l.Return(base.RenderPage(path, data, renderSpecs), "default render with data");
     }
+
+    /// <inheritdoc />
+    [PrivateApi]
+    internal IExecutionContext ExCtx { get; private set; }
+
+    /// <inheritdoc />
+    [PrivateApi]
+    public void ConnectToRoot(IExecutionContext exCtx)
+    {
+        RzrHlp.ConnectToRoot(exCtx);
+        ExCtx = exCtx;
+    }
+
+    /// <summary>
+    /// Override the base class ConfigurePage, and additionally update internal objects so sub-pages work just like the master
+    /// </summary>
+    /// <param name="parentPage"></param>
+    [PrivateApi]
+    protected override void ConfigurePage(WebPageBase parentPage)
+    {
+        base.ConfigurePage(parentPage);
+        RzrHlp.ConfigurePage(parentPage, VirtualPath);
+    }
+
+    /// <summary>
+    /// Must be set on each derived class
+    /// </summary>
+    [PrivateApi]
+    public abstract int CompatibilityLevel { get; }
+
+    #endregion
+
+    #region Secret Stuff like IHasLog or Compile Helpers
+
+    /// <summary>
+    /// EXPLICIT Log implementation (to ensure that new IHasLog.Log interface is implemented)
+    /// </summary>
+    [PrivateApi] ILog IHasLog.Log => RzrHlp.Log;
+
+    /// <inheritdoc />
+    public string Path => VirtualPath;
+
+    #endregion
+
+    #region Core Properties which should appear in docs
+
+    /// <inheritdoc />
+    public virtual ICodeLog Log => RzrHlp.CodeLog;
+
+    /// <inheritdoc />
+    public virtual IHtmlHelper Html => RzrHlp.Html;
+
+    #endregion
 }

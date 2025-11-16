@@ -1,20 +1,15 @@
-﻿using ToSic.Lib.Documentation;
-using ToSic.Sxc.Code;
+﻿namespace ToSic.Sxc.Dnn;
 
-namespace ToSic.Sxc.Dnn
+abstract partial class RazorComponent
 {
-    public abstract partial class RazorComponent
-    {
-        #region Code Behind - a Dnn feature which probably won't exist in Oqtane
+    #region Code Behind - a Dnn feature which probably won't exist in Oqtane
 
-        [PrivateApi]
-        internal RazorCodeManager CodeManager => _codeManager ?? (_codeManager = new RazorCodeManager(this, (Log as CodeLog)?.GetContents()));
-        private RazorCodeManager _codeManager;
+    [PrivateApi]
+    internal RazorCodeManager CodeManager => field ??= new(this, Log?.GetContents());
 
-        /// <inheritdoc />
-        public dynamic Code => CodeManager.CodeOrException;
+    /// <inheritdoc />
+    public dynamic Code => CodeManager.CodeOrException;
 
-        #endregion
+    #endregion
 
-    }
 }

@@ -1,0 +1,19 @@
+﻿using ToSic.Oqt.Coding;
+
+namespace ToSic.Sxc.Oqt.Shared.Interfaces;
+
+/// <summary>
+/// turnOn Service helps initialize / boot JavaScripts when all requirements (usually dependencies) are ready.
+/// </summary>
+[PrivateApi("Don't publish yet - the functionality is surfaced on the PageService!")]
+[ShowApiWhenReleased(ShowApiMode.Never)]
+public interface IOqtTurnOnService 
+{
+    string Run(object runOrSpecs,
+        NoParamOrderOqtane noParamOrder = default,
+        object? require = null,
+        object? data = null,
+        IEnumerable<object>? args = default,
+        string? addContext = default
+    );
+}

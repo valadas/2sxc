@@ -1,91 +1,75 @@
 ﻿using Oqtane.Models;
 using Oqtane.Repository;
-using System;
-using ToSic.Lib.DI;
-using ToSic.Lib.Logging;
-using ToSic.Sxc.Blocks;
+using ToSic.Eav.WebApi.Sys.Helpers.Http;
+using ToSic.Sxc.Blocks.Sys;
+using ToSic.Sxc.Blocks.Sys.BlockBuilder;
 using ToSic.Sxc.Context;
+using ToSic.Sxc.Context.Sys;
 using ToSic.Sxc.Oqt.Server.Context;
-using ToSic.Sxc.Oqt.Server.Integration;
 using ToSic.Sxc.Oqt.Shared;
-using Log = ToSic.Lib.Logging.Log;
 
-namespace ToSic.Sxc.Oqt.Server.Blocks
+namespace ToSic.Sxc.Oqt.Server.Blocks;
+
+internal class OqtModuleAndBlockBuilder(
+    Generator<IModule> moduleGenerator,
+    Generator<IContextOfBlock> contextGenerator,
+    Generator<BlockOfModule> blockGenerator,
+    Generator<IModuleRepository> moduleRepositoryGenerator,
+    RequestHelper requestHelper)
+    : ModuleAndBlockBuilder(blockGenerator, OqtConstants.OqtLogPrefix,
+        connect: [moduleGenerator, contextGenerator, moduleRepositoryGenerator, requestHelper])
 {
-    public class OqtModuleAndBlockBuilder : ModuleAndBlockBuilder
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="pageId">not required in Oqtane</param>
+    /// <param name="moduleId"></param>
+    /// <returns></returns>
+    protected override IModule GetModuleImplementation(int pageId, int moduleId)
     {
-        public OqtModuleAndBlockBuilder(
-            Generator<IModule> moduleGenerator,
-            Generator<IContextOfBlock> contextGenerator,
-            Generator<BlockFromModule> blockGenerator,
-            Generator<IModuleRepository> moduleRepositoryGenerator,
-            RequestHelper requestHelper
-        ) : base(blockGenerator, OqtConstants.OqtLogPrefix)
+        var oqtModule = moduleRepositoryGenerator.New().GetModule(moduleId);
+        ThrowIfModuleIsNull(pageId, moduleId, oqtModule);
+        var module = ((OqtModule) moduleGenerator.New()).Init(oqtModule);
+        return module;
+    }
+
+    protected override IContextOfBlock GetContextOfBlock(IModule module, int? pageId)
+        => GetContextOfBlock((module as OqtModule)?.GetContents(), pageId);
+
+    protected override IContextOfBlock GetContextOfBlock<TPlatformModule>(TPlatformModule module, int? pageId)
+    {
+        var l = Log.Fn<IContextOfBlock>();
+        if (module == null) throw new ArgumentNullException(nameof(module));
+
+        var oqtModule = module switch
         {
-            _moduleGenerator = moduleGenerator;
-            _contextGenerator = contextGenerator;
-            _moduleRepositoryGenerator = moduleRepositoryGenerator;
-            _requestHelper = requestHelper;
-        }
+            Module oModule => oModule,
+            PageModule oPageModule => oPageModule.Module,
+            _ => throw new ArgumentException("Given data is not a module")
+        };
 
-        private readonly Generator<IModule> _moduleGenerator;
-        private readonly Generator<IContextOfBlock> _contextGenerator;
-        private readonly Generator<IModuleRepository> _moduleRepositoryGenerator;
-        private readonly RequestHelper _requestHelper;
-        private ILog ParentLog => (Log as Log)?.Parent ?? Log;
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="pageId">not required in Oqtane</param>
-        /// <param name="moduleId"></param>
-        /// <returns></returns>
-        protected override IModule GetModuleImplementation(int pageId, int moduleId)
-        {
-            var oqtModule = (_moduleRepositoryGenerator.New()).GetModule(moduleId);
-            ThrowIfModuleIsNull(pageId, moduleId, oqtModule);
-            var module = ((OqtModule) _moduleGenerator.New()).Init(oqtModule);
-            return module;
-        }
-
-        protected override IContextOfBlock GetContextOfBlock(IModule module, int? pageId) => GetContextOfBlock((module as OqtModule)?.GetContents(), pageId);
-
-        protected override IContextOfBlock GetContextOfBlock<TPlatformModule>(TPlatformModule module, int? pageId)
-        {
-            var wrapLog = Log.Fn<IContextOfBlock>();
-            if (module == null) throw new ArgumentNullException(nameof(module));
-
-            var oqtModule = module switch
-            {
-                Module oModule => oModule,
-                PageModule oPageModule => oPageModule.Module,
-                _ => throw new ArgumentException("Given data is not a module")
-            };
-
-            Log.A($"Module: {oqtModule.ModuleId}");
-            var initializedCtx = InitOqtSiteModuleAndBlockContext(oqtModule, pageId);
-            return wrapLog.ReturnAsOk(initializedCtx);
-        }
+        l.A($"Module: {oqtModule.ModuleId}");
+        var initializedCtx = InitOqtSiteModuleAndBlockContext(oqtModule, pageId);
+        return l.ReturnAsOk(initializedCtx);
+    }
 
 
-        private IContextOfBlock InitOqtSiteModuleAndBlockContext(Module oqtModule, int? pageId)
-        {
-            var wrapLog = Log.Fn<IContextOfBlock>();
-            var context = _contextGenerator.New();
-            Log.A("Will init module");
-            ((OqtModule) context.Module).Init(oqtModule);
-            return wrapLog.Return(InitPageOnly(context, pageId));
-        }
+    private IContextOfBlock InitOqtSiteModuleAndBlockContext(Module oqtModule, int? pageId)
+    {
+        var l = Log.Fn<IContextOfBlock>();
+        var context = contextGenerator.New();
+        l.A("Will init module");
+        ((OqtModule) context.Module).Init(oqtModule);
+        return l.Return(InitPageOnly(context, pageId));
+    }
 
-        private IContextOfBlock InitPageOnly(IContextOfBlock context, int? pageId)
-        {
-            // TODO: try to use the pageId if given, would usually only be used in inner-content / IRenderService scenarios
-
-            var wrapLog = Log.Fn<IContextOfBlock>();
-            // Collect / assemble page information
-            context.Page.Init(_requestHelper.TryGetPageId());
-            var url = context.Page.Url;
-            return wrapLog.Return(context, url);
-        }
+    private IContextOfBlock InitPageOnly(IContextOfBlock context, int? pageId)
+    {
+        // TODO: try to use the pageId if given, would usually only be used in inner-content / IRenderService scenarios
+        var l = Log.Fn<IContextOfBlock>();
+        // Collect / assemble page information
+        context.Page.Init(requestHelper.TryGetId(ContextConstants.PageIdKey));
+        var url = context.Page.Url;
+        return l.Return(context, url);
     }
 }

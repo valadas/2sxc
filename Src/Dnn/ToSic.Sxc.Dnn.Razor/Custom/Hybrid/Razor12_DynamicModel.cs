@@ -1,21 +1,15 @@
-﻿using ToSic.Sxc.Data;
-using ToSic.Sxc.Engines;
+﻿using ToSic.Sxc.Engines.Sys;
+using ToSic.Sxc.Render.Sys.Specs;
 
 // ReSharper disable once CheckNamespace
-namespace Custom.Hybrid
+namespace Custom.Hybrid;
+
+partial class Razor12: ISetDynamicModel
 {
-    public partial class Razor12: ISetDynamicModel
-    {
-        /// <summary>
-        /// Dynamic object containing parameters. So in Dnn it contains the PageData, in Oqtane it contains the Model
-        /// </summary>
-        /// <remarks>
-        /// New in v12
-        /// </remarks>
-        public dynamic DynamicModel => _dynamicModel ?? (_dynamicModel = new DynamicReadDictionary<object, dynamic>(PageData));
-        private dynamic _dynamicModel;
+    /// <inheritdoc cref="Custom.Razor.Sys.IRazor14{TModel,TServiceKit}.DynamicModel"/>
+    [PublicApi]
+    public dynamic DynamicModel => RzrHlp.DynamicModel;
 
-
-        void ISetDynamicModel.SetDynamicModel(object data) => _dynamicModel = new DynamicReadObject(data, false, false);
-    }
+    [PrivateApi]
+    void ISetDynamicModel.SetDynamicModel(RenderSpecs viewData) => RzrHlp.SetDynamicModel(viewData);
 }

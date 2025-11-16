@@ -1,12 +1,11 @@
-﻿using ToSic.Eav.DataSources;
+﻿using ToSic.Eav.DataSources.Sys;
 
-namespace ToSic.Sxc.Dnn.DataSources
+namespace ToSic.Sxc.Dnn.DataSources;
+
+public class DnnSqlPlatformInfo: SqlPlatformInfo
 {
-    public class DnnSqlPlatformInfo: SqlPlatformInfo
-    {
-        // String "SiteSqlServer" isn't available in any constant in DNN
-        internal const string SiteSqlServer = "SiteSqlServer";
+    // String "SiteSqlServer" isn't available in any constant in DNN
+    internal const string SiteSqlServer = "SiteSqlServer";
 
-        public override string DefaultConnectionStringName => SiteSqlServer;
-    }
+    public override string DefaultConnectionStringName => SiteSqlServer;
 }

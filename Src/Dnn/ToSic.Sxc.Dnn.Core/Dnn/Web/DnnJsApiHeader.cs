@@ -1,40 +1,32 @@
 ﻿using DotNetNuke.Common;
-using ToSic.Lib.Documentation;
-using ToSic.Lib.Logging;
-using ToSic.Lib.Services;
 using ToSic.Razor.Blade;
-using ToSic.Sxc.Edit;
+using ToSic.Sxc.Render.Sys.JsContext;
 
-namespace ToSic.Sxc.Dnn.Web
+namespace ToSic.Sxc.Dnn.Web;
+
+internal class DnnJsApiHeader(IJsApiService dnnJsApiService, ILog parentLog = null) : HelperBase(parentLog, "Dnn.JsApiH")
 {
-    [PrivateApi]
-    public class DnnJsApiHeader: HelperBase
+    public bool AddHeaders()
     {
-        public DnnJsApiHeader(ILog parentLog = null) : base(parentLog, "Dnn.JsApiH")
-        {
-        }
+        var l = Log.Fn<bool>();
+        // ensure we only do this once
+        if (MarkAddedAndReturnIfAlreadyDone()) return l.ReturnFalse("already");
 
-        public bool AddHeaders() => Log.Func(() =>
-        {
-            // ensure we only do this once
-            if (MarkAddedAndReturnIfAlreadyDone()) return (false, "already");
-
-            var json = DnnJsApi.GetJsApiJson();
-            if (json == null) return (false, "no path");
+        var json = dnnJsApiService.GetJsApiJson(pageId: null, siteRoot: null, rvt: null, withPublicKey: false);
+        if (json == null) return l.ReturnFalse("no path");
 
 #pragma warning disable CS0618
-            HtmlPage.AddMeta(InpageCms.MetaName, json);
+        HtmlPage.AddMeta(JsApi.MetaName, json);
 #pragma warning restore CS0618
-            return (true, "added");
-        });
+        return l.ReturnTrue("added");
+    }
   
-        private const string KeyToMarkAdded = "2sxcApiHeadersAdded";
+    private const string KeyToMarkAdded = "2sxcApiHeadersAdded";
 
-        private static bool MarkAddedAndReturnIfAlreadyDone()
-        {
-            var alreadyAdded = HttpContextSource.Current.Items.Contains(KeyToMarkAdded);
-            HttpContextSource.Current.Items[KeyToMarkAdded] = true;
-            return alreadyAdded;
-        }
+    private static bool MarkAddedAndReturnIfAlreadyDone()
+    {
+        var alreadyAdded = HttpContextSource.Current.Items.Contains(KeyToMarkAdded);
+        HttpContextSource.Current.Items[KeyToMarkAdded] = true;
+        return alreadyAdded;
     }
 }

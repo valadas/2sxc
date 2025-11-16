@@ -1,53 +1,44 @@
 ﻿using Oqtane.Models;
-using ToSic.Eav.LookUp;
-using ToSic.Sxc.Context;
+using ToSic.Eav.LookUp.Sources;
+using ToSic.Sxc.Context.Sys;
 using ToSic.Sxc.Oqt.Server.Context;
-using static ToSic.Sxc.LookUp.LookUpConstants;
+using static ToSic.Sxc.LookUp.Sys.LookUpConstants;
 
-namespace ToSic.Sxc.Oqt.Server.LookUps
+namespace ToSic.Sxc.Oqt.Server.LookUps;
+
+internal class OqtModuleLookUp(ISxcCurrentContextService ctxService) : LookUpBase(SourceModule, "LookUp in Oqtane Module")
 {
-    public class OqtModuleLookUp : LookUpBase
+    private Module Module { get; set; }
+
+    public Module GetSource()
     {
-        private Module Module { get; set; }
+        if (_alreadyTried) return null;
+        _alreadyTried = true;
+        var ctx = ctxService.BlockContextOrNull();
+        var module = (OqtModule)ctx?.Module;
+        return module?.GetContents();
+    }
 
-        public OqtModuleLookUp(IContextResolver ctxResolver)
+    private bool _alreadyTried;
+
+    public override string Get(string key, string format)
+    {
+        try
         {
-            Name = SourceModule;
-            _ctxResolver = ctxResolver;
-        }
+            Module ??= GetSource();
 
-        private readonly IContextResolver _ctxResolver;
+            if (Module == null) return null;
 
-        public Module GetSource()
-        {
-            if (_alreadyTried) return null;
-            _alreadyTried = true;
-            var ctx = _ctxResolver.BlockContextOrNull();
-            var module = (OqtModule)ctx?.Module;
-            return module?.GetContents();
-        }
-
-        private bool _alreadyTried;
-
-        public override string Get(string key, string format)
-        {
-            try
+            return key.ToLowerInvariant() switch
             {
-                Module ??= GetSource();
-
-                if (Module == null) return null;
-
-                return key.ToLowerInvariant() switch
-                {
-                    KeyId => $"{Module.ModuleId}",
-                    OldDnnModuleId => $"Warning: '{OldDnnModuleId}' was requested, but the {nameof(OqtModuleLookUp)} source can only answer to '{KeyId}'",
-                    _ => string.Empty
-                };
-            }
-            catch
-            {
-                return string.Empty;
-            }
+                KeyId => $"{Module.ModuleId}",
+                OldDnnModuleId => $"Warning: '{OldDnnModuleId}' was requested, but the {nameof(OqtModuleLookUp)} source can only answer to '{KeyId}'",
+                _ => string.Empty
+            };
+        }
+        catch
+        {
+            return string.Empty;
         }
     }
 }

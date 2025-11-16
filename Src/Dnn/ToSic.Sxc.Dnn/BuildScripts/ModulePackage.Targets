@@ -1,17 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-
 <!-- WARNING, WARNING, WARNING -->
 <!-- REMEMBER THAT IF YOU MODIFY THE TARGETS FILE YOU NEED TO CLOSE/OPEN THE PROJECT FOR THE CHANGES TO TAKE EFFECT -->
 
 <Project ToolsVersion="3.5" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
   <Import Project="MSBuild.Community.Tasks.Targets" />
+  <UsingTask TaskName="CopyNewerFileVersion" AssemblyFile="$(MSBuildProjectDirectory)\..\..\Build\ToSic.Sxc.BuildTasks\bin\Debug\net472\ToSic.Sxc.BuildTasks.dll" />
+  <UsingTask TaskName="ModifyXmlDocumentation" AssemblyFile="$(MSBuildProjectDirectory)\..\..\Build\ToSic.Sxc.BuildTasks\bin\Debug\net472\ToSic.Sxc.BuildTasks.dll" />
 
   <!-- The Dnn Build Package - Should only run after release compile -->
-  <Target Name="PackageModule" AfterTargets="AfterBuild" Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+  <Target Name="PackageModule" AfterTargets="Build" DependsOnTargets="BuildConfigTarget" Condition=" '$(Configuration)|$(Platform)|$(SourceExist)' == 'Release|AnyCPU|true' ">
 
     <Message Text="DnnBuild: Starting DNN Build" Importance="high" />
-    <Message Text="DnnBuild: Will get Assets from $(Dev2sxcAssets)" Importance="high" />
+    <Message Text="DnnBuild: Will get Assets from $(Source)" Importance="high" />
+
+    <Error Condition="!Exists('$(Source)')" Text="DnnBuild: ERROR: Assets folder not found at $(Source)" />
 
     <!-- Properties / Variables for the DNN Build which we need early on-->
     <PropertyGroup>
@@ -28,9 +31,9 @@
       <TempPackageFolder>$(MSBuildProjectDirectory)\ModulePackages\Temp</TempPackageFolder>
       <TempPackageResourcesFolder>$(MSBuildProjectDirectory)\ModulePackages\TempResources</TempPackageResourcesFolder>
       <TempPackagePdbFolder>$(MSBuildProjectDirectory)\ModulePackages\TempPdb</TempPackagePdbFolder>
-      <FinalZipFolder>../../../InstallPackages/Dnn-Installer</FinalZipFolder>
+      <DnnInstallPackage Condition=" '$(DnnInstallPackage)' == '' ">../../../InstallPackages/Dnn-Installer</DnnInstallPackage>
       <FinalZipFileName>$(PackageName).$(Version)_Install.zip</FinalZipFileName>
-      <SourceMapsFolder>$(Dev2sxcAssets)\..\$(Version)</SourceMapsFolder>
+      <SourceMapsFolder>$(Source)..\$(Version)</SourceMapsFolder>
     </PropertyGroup>
 
     <ItemGroup>
@@ -53,19 +56,20 @@
 
     <ItemGroup>
       <InstallInclude Include="**\*.ascx" Exclude="@(DefaultExclude)" />
-
+      <InstallInclude Include="**\*.aspx" Exclude="@(DefaultExclude)" />
       <InstallInclude Include="**\*.asmx" Exclude="@(DefaultExclude)" />
       <InstallInclude Include="**\*.css" Exclude="@(DefaultExclude)" />
       <InstallInclude Include="**\*.html" Exclude="@(DefaultExclude)" />
       <InstallInclude Include="**\*.htm" Exclude="@(DefaultExclude)" />
       <InstallInclude Include="**\*.resx" Exclude="@(DefaultExclude)" />
 
-      <InstallInclude Include="**\*.aspx" Exclude="@(DefaultExclude)" />
       <!-- all js + css + html etc. stuff from assets-->
-      <InstallInclude Include="$(Dev2sxcAssets)\**\*.*" Exclude="$(Dev2sxcAssets)\**\*.map" />
-
+      <InstallInclude Include="$(Source)readme.md" Exclude="@(DefaultExclude)" />
+      <InstallIncludeJs Include="$(Source)\js\**\*.*" Exclude="$(Source)\js\**\*.map" />
+      <InstallIncludeSystem Include="$(Source)\system\**\*.*" Exclude="$(Source)\system\**\*.map" />
+      <InstallIncludeDist Include="$(Source)\dist\**\*.*" Exclude="$(Source)\dist\**\*.map" />
       <!-- WIP - turnOn map files must be included for now-->
-      <InstallInclude Include="$(Dev2sxcAssets)\**\dist\turnOn\*.*" />
+      <InstallIncludeDist Include="$(Source)\turnOn\*.*" />
 
       <!-- all global types and queries -->
       <InstallInclude Include="..\..\Data\**\App_Data\new-app\**\*.*" />
@@ -88,21 +92,63 @@
 
     <ItemGroup>
       <!-- Global / Shared 2sxc and EAV DLLs-->
-      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.dll" />
+      <!--<AssemblyInclude Include="$(OutDir)\ToSic.Sxc.dll" />
       <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Core.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Core.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Adam.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Adam.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Apps.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Apps.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Blocks.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Blocks.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Cms.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Cms.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Code.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Code.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Code.Generate.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Code.Generate.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Code.HotBuild.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Code.HotBuild.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Custom.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Custom.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Data.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Data.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Edit.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Edit.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Engines.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Engines.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Images.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Images.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.LightSpeed.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.LightSpeed.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Render.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Render.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Services.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Services.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Web.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Web.pdb" />
       <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.WebApi.dll" />
-      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.WebApi.pdb" />
-      <AssemblyInclude Include="$(OutDir)\ToSic.Eav*.dll" />
-      <AssemblyHelper Include="$(OutDir)\ToSic.Eav*.pdb" />
-      <AssemblyInclude Include="$(OutDir)\ToSic.Lib*.dll" />
-      <AssemblyHelper Include="$(OutDir)\ToSic.Lib*.pdb" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.WebApi.pdb" />-->
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.*.dll" Exclude="ToSic.Sxc.Dnn.Enterprise.dll"/>
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.*.pdb" Exclude="ToSic.Sxc.Dnn.Enterprise.pdb"/>
+      <!-- 2025-06-04 2dm v20 doesn't have the ToSic.Eav.dll any more -->
+      <!--<AssemblyInclude Include="$(OutDir)\ToSic.Eav.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Eav.pdb" />-->
+      <AssemblyInclude Include="$(OutDir)\ToSic.Eav.*.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Eav.*.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Lib.*.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Lib.*.pdb" />
+      <AssemblyInclude Include="$(OutDir)\ToSic.Sys.*.dll" />
+      <AssemblyHelper Include="$(OutDir)\ToSic.Sys.*.pdb" />
 
-      <!-- DNN specific DLLs -->
-      <AssemblyInclude Include="$(OutDir)\ToSic.Sxc.Dnn*.dll" />
-      <AssemblyHelper Include="$(OutDir)\ToSic.Sxc.Dnn*.pdb" />
+      <!-- XML documentation -->
+      <!--<AssemblyDocumentation Include="$(OutDir)\ToSic.Sxc.xml" />-->
+      <AssemblyDocumentation Include="$(OutDir)\ToSic.Sxc.Dnn.xml" />
 
       <!-- 2sxc 13+ netstandard2.0/framework 4.7.2 assemblies -->
-      <AssemblyInclude Include="$(OutDir)\Microsoft.Bcl.AsyncInterfaces.dll" />
+      <DependencyInclude Include="$(OutDir)\Microsoft.Bcl.AsyncInterfaces.dll" />
+      <AssemblyInclude Include="$(OutDir)\Microsoft.Bcl.HashCode.dll" />
       <AssemblyInclude Include="$(OutDir)\Microsoft.EntityFrameworkCore.Abstractions.dll" />
       <AssemblyInclude Include="$(OutDir)\Microsoft.EntityFrameworkCore.dll" />
       <AssemblyInclude Include="$(OutDir)\Microsoft.EntityFrameworkCore.Relational.dll" />
@@ -126,6 +172,7 @@
       <AssemblyInclude Include="$(OutDir)\System.Data.SqlClient.dll" />
       <AssemblyInclude Include="$(OutDir)\System.Diagnostics.DiagnosticSource.dll" />
       <AssemblyInclude Include="$(OutDir)\System.Interactive.Async.dll" />
+      <AssemblyInclude Include="$(OutDir)\System.IO.Pipelines.dll" />
       <AssemblyInclude Include="$(OutDir)\System.Memory.dll" />
       <!--<AssemblyInclude Include="$(OutDir)\System.Net.Http.Formatting.dll" />-->
       <AssemblyInclude Include="$(OutDir)\System.Numerics.Vectors.dll" />
@@ -162,8 +209,13 @@
       <Output TaskParameter="Include" ItemName="SqlDataProviderFiles" />
     </CreateItem>
 
+    <!-- Run the modification task for each documentation file -->
+    <ModifyXmlDocumentation XmlDocumentationPath="%(AssemblyDocumentation.Identity)" />
+
     <Copy SourceFiles="@(AssemblyInclude)" DestinationFolder="$(TempPackageFolder)\bin" />
     <Copy SourceFiles="@(AssemblyHelper)" DestinationFolder="$(TempPackagePdbFolder)\bin" />
+    <Copy SourceFiles="@(AssemblyDocumentation)" DestinationFolder="$(TempPackagePdbFolder)\bin" />
+    <Copy SourceFiles="@(DependencyInclude)" DestinationFolder="$(TempPackageFolder)\bin\2sxc" />
     <Copy SourceFiles="@(SqlDataProviderFiles)" DestinationFolder="$(TempPackageFolder)\%(RecursiveDir)" />
     <Copy SourceFiles="@(PackageManifestFiles)" DestinationFolder="$(TempPackageFolder)" />
     <Copy SourceFiles="@(PackageModuleIcon)" DestinationFolder="$(TempPackageFolder)" />
@@ -183,13 +235,9 @@
 
     <ItemGroup>
       <!-- DNN specific DLLs -->
-      <ImageflowAssemblyInclude Include="$(MSBuildProjectDirectory)\Extensions\Imageflow\bin\ToSic.Imageflow.Dnn.dll" />
-
-      <!-- DNN shared assemblies -->
-      <!--<ImageflowAssemblyInclude Include="$(MSBuildProjectDirectory)\Extensions\Imageflow\bin\Newtonsoft.Json.dll" />-->
+      <ImageflowAssemblyInclude Include="$(MSBuildProjectDirectory)\Extensions\Imageflow\bin\*.dll" />
     </ItemGroup>
-
-    <Copy SourceFiles="@(ImageflowAssemblyInclude)" DestinationFolder="$(TempPackageFolder)\bin" />
+    <CopyNewerFileVersion SourceFiles="@(ImageflowAssemblyInclude)" DestinationFolder="$(TempPackageFolder)\bin" />
 
     <!-- include koi folder -->
     <ItemGroup>
@@ -199,7 +247,7 @@
     <ItemGroup>
       <KoiDllFiles Include="$(MSBuildProjectDirectory)/koi/bin/*.dll" />
     </ItemGroup>
-    <Copy SourceFiles="@(KoiDllFiles)" DestinationFolder="$(TempPackageFolder)\bin" />
+    <CopyNewerFileVersion SourceFiles="@(KoiDllFiles)" DestinationFolder="$(TempPackageFolder)\bin" />
 
     <!-- include new razorblade 3 module -->
     <ItemGroup>
@@ -209,7 +257,7 @@
     <ItemGroup>
       <RazorBlade3DllFiles Include="$(MSBuildProjectDirectory)/razorblade/bin/*.dll" />
     </ItemGroup>
-    <Copy SourceFiles="@(RazorBlade3DllFiles)" DestinationFolder="$(TempPackageFolder)\bin" />
+    <CopyNewerFileVersion SourceFiles="@(RazorBlade3DllFiles)" DestinationFolder="$(TempPackageFolder)\bin" />
 
     <!-- include razorblade old module -->
     <ItemGroup>
@@ -219,11 +267,14 @@
     <ItemGroup>
       <RazorBladeDllFiles Include="$(MSBuildProjectDirectory)/razorblade-old/bin/*.dll" />
     </ItemGroup>
-    <Copy SourceFiles="@(RazorBladeDllFiles)" DestinationFolder="$(TempPackageFolder)\bin" />
+    <CopyNewerFileVersion SourceFiles="@(RazorBladeDllFiles)" DestinationFolder="$(TempPackageFolder)\bin" />
 
 
     <!-- create the INSTALL RESOURCES.ZIP file -->
     <Copy SourceFiles="@(InstallInclude)" DestinationFolder="$(TempPackageResourcesFolder)\%(RecursiveDir)" />
+    <Copy SourceFiles="@(InstallIncludeJs)" DestinationFolder="$(TempPackageResourcesFolder)\js\%(RecursiveDir)" />
+    <Copy SourceFiles="@(InstallIncludeSystem)" DestinationFolder="$(TempPackageResourcesFolder)\system\%(RecursiveDir)" />
+    <Copy SourceFiles="@(InstallIncludeDist)" DestinationFolder="$(TempPackageResourcesFolder)\dist\%(RecursiveDir)" />
 
     <CreateItem Include="$(TempPackageResourcesFolder)\**\*.*">
       <Output TaskParameter="Include" ItemName="ResourcesContent" />
@@ -237,23 +288,21 @@
 
 
     <!-- Create the Install package -->
-    <Message Text="DnnBuild: Creating final Zip file $(FinalZipFileName) in $(FinalZipFolder)" Importance="high" />
+    <Message Text="DnnBuild: Creating final Zip file $(FinalZipFileName) in $(DnnInstallPackage)" Importance="high" />
     <CreateItem Include="$(TempPackageFolder)\**\*.*">
       <Output TaskParameter="Include" ItemName="OutputContent" />
     </CreateItem>
-    <Zip Files="@(OutputContent)" WorkingDirectory="$(TempPackageFolder)" ZipFileName="$(FinalZipFolder)/$(FinalZipFileName)" />
+    <Zip Files="@(OutputContent)" WorkingDirectory="$(TempPackageFolder)" ZipFileName="$(DnnInstallPackage)/$(FinalZipFileName)" />
 
 
     <!-- Auto-deploy the externalized map files to another repo-->
     <!-- New in 2020-09 From now on we'll also publish the built js files to sources.2sxc.org and not include them in 2sxc-repo any more -->
     <Message Text="DnnBuild: Copying all Assets to versioned folder $(SourceMapsFolder)" Importance="high" />
     <ItemGroup>
-      <ExternalSourceMaps Include="$(Dev2sxcAssets)\dist\*ng-edit\**\*.*" />
-      <ExternalSourceMaps Include="$(Dev2sxcAssets)\dist\*inpage\**\*.*" />
-      <ExternalSourceMaps Include="$(Dev2sxcAssets)\dist\*ng\**\*.*" />
-      <!--include the js and system folders, but as a subfolder (that's why the strange syntax) -->
-      <ExternalSourceMaps Include="$(Dev2sxcAssets)\*js\**\*.*" />
-      <ExternalSourceMaps Include="$(Dev2sxcAssets)\*system\**\*.*" />
+      <!--include the dist, js and system folders, but as a subfolder (that's why the strange syntax) -->
+      <ExternalSourceMaps Include="$(Source)\*dist\**\*.*" />
+      <ExternalSourceMaps Include="$(Source)\*js\**\*.*" />
+      <ExternalSourceMaps Include="$(Source)\*system\**\*.*" />
     </ItemGroup>
     <RemoveDir Directories="$(SourceMapsFolder)" />
     <Copy SourceFiles="@(ExternalSourceMaps)" DestinationFolder="$(SourceMapsFolder)\%(RecursiveDir)" />

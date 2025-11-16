@@ -1,99 +1,102 @@
 ﻿using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Microsoft.JSInterop;
 using Oqtane.Modules;
 using Oqtane.Security;
 using Oqtane.Shared;
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using ToSic.Sxc.Oqt.Client;
+using ToSic.Sxc.Oqt.Shared.Helpers;
+using ToSic.Sxc.Oqt.Shared.Interfaces;
 
 // ReSharper disable once CheckNamespace
-namespace ToSic.Sxc.Oqt.App
+namespace ToSic.Sxc.Oqt.App;
+
+[ShowApiWhenReleased(ShowApiMode.Never)]
+public abstract class ModuleProBase: ModuleBase, IOqtHybridLog
 {
-    public class ModuleProBase: ModuleBase
+    #region Injected Services
+
+    [Inject] public NavigationManager NavigationManager { get; set; } = null!;
+    [Inject] public IOqtDebugStateService OqtDebugStateService { get; set; } = null!;
+    [Inject] public IConfiguration Configuration { get; set; } = null!;
+
+    #endregion
+
+    #region Shared Variables
+    public bool IsSuperUser => _isSuperUser ??= UserSecurity.IsAuthorized(PageState.User, RoleNames.Host);
+    private bool? _isSuperUser;
+
+    [InternalApi_DoNotUse_MayChangeWithoutNotice]
+    public bool IsAdmin => _isAdmin ??= UserSecurity.IsAuthorized(PageState.User, RoleNames.Admin);
+    private bool? _isAdmin;
+
+    public SxcInterop SxcInterop = null!;
+    public bool IsSafeToRunJs;
+    public readonly ConcurrentQueue<object[]> LogMessageQueue = new();
+
+    public bool FirstRender = true;
+
+    #endregion
+
+    protected override async Task OnParametersSetAsync()
     {
-        #region Injected Services
+        await base.OnParametersSetAsync();
 
-        [Inject] public NavigationManager NavigationManager { get; set; }
-        [Inject] public IHttpContextAccessor HttpContextAccessor { get; set; }
+        var debugEnabled = await OqtDebugStateService.GetDebugAsync();
+        if (!debugEnabled && NavigationManager.TryGetQueryString<bool>("debug", out var debugInQueryString))
+            OqtDebugStateService.SetDebug(debugInQueryString);
+    }
 
-        #endregion
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+        FirstRender = firstRender;
 
-        #region Shared Variables
-
-        //public static bool Debug;
-
-        public bool Debug // persist state across circuits (blazor server only)
+        // Only enable JS after the page is interactive (not during prerender)
+        if (!IsSafeToRunJs && !IsPrerendering())
         {
-            get => (HttpContextAccessor?.HttpContext?.Items[DebugKey] as bool?) ?? false;
-            set
-            {
-                if (HttpContextAccessor?.HttpContext != null)
-                    HttpContextAccessor.HttpContext.Items[DebugKey] = value;
-            }
+            SxcInterop ??= new(JSRuntime);
+            IsSafeToRunJs = true;
         }
-        private const string DebugKey = "Debug";
+    }
 
-        public bool IsSuperUser => _isSuperUser ??= UserSecurity.IsAuthorized(PageState.User, RoleNames.Host);
-        private bool? _isSuperUser;
+    /// <summary>
+    /// Determines if the current page is in the prerendering phase.
+    /// </summary>
+    /// <remarks>
+    /// This is a 2sxc implementation which provides an approximation suitable for PreRendering purposes. 
+    /// However, it may not always return accurate results, especially with "WebAssemblyPrerendered" where it might return an incorrect true value.
+    /// This behavior is acceptable for our PreRendering support.
+    /// It's important to note that we cannot solely rely on Oqtane.Shared.SiteState.IsPrerendering property. 
+    /// In Oqtane, this property indicates that a page isn't prerendering if the response has already started, which differs from our use-case.
+    /// </remarks>
+    /// <returns>True if the page is in the prerendering phase; otherwise, false.</returns>
+    public bool IsPrerendering() =>
+        (PageState.Site.Prerender) // Checks the site's render mode.
+        && FirstRender // Ensures this is the first render.
+        && SiteState.IsPrerendering; // Validates the prerendering state of the current page.
 
-        public SxcInterop SxcInterop;
-        public bool IsSafeToRunJs;
-        public readonly ConcurrentQueue<object[]> LogMessageQueue = new();
+    #region Log Helpers
+    /// <summary>
+    /// console.log
+    /// </summary>
+    /// <param name="message"></param>
+    /// <returns></returns>
+    public void Log(params object[] message)
+    {
+        // If the url has a debug=true and we are the super-user
+        if (message == null! || !message.Any() || !OqtDebugStateService.IsDebugEnabled || !IsSuperUser) return;
 
-        #endregion
-
-        //protected override async Task OnInitializedAsync()
-        //{
-        //    await base.OnInitializedAsync();
-        //}
-        public bool IsPreRendering() => PageState.Site.RenderMode == "ServerPrerendered"; // The render mode for the site.
-
-        protected override async Task OnParametersSetAsync()
+        _logPrefix ??= $"2sxc:Page({PageState?.Page?.PageId}):Mod({ModuleState?.ModuleId}):Render({ModuleState?.RenderId}):";
+        try
         {
-            await base.OnParametersSetAsync();
+            // log on web server / webassembly console
+            foreach (var item in message)
+                Console.WriteLine($"{_logPrefix} {item}");
 
-            if (NavigationManager.TryGetQueryString<bool>("debug", out var debugInQueryString))
-                Debug = debugInQueryString;
-            
-            Log($"2sxc Blazor Logging Enabled");  // will only show if it's enabled
-        }
-        
-
-        protected override async Task OnAfterRenderAsync(bool firstRender)
-        {
-            await base.OnAfterRenderAsync(firstRender);
-            if (firstRender)
+            if (OqtDebugStateService.Platform == "Server")
             {
-                SxcInterop = new SxcInterop(JSRuntime);
-                // now we are safe to have SxcInterop and run js
-                IsSafeToRunJs = true;
-            } 
-        }
-
-        #region Log Helpers
-
-        /// <summary>
-        /// console.log
-        /// </summary>
-        /// <param name="message"></param>
-        /// <returns></returns>
-        public void Log(params object[] message)
-        {
-            // If the url has a debug=true and we are the super-user
-            if (message == null || !message.Any() || !Debug || !IsSuperUser) return;
-
-            _logPrefix ??= $"2sxc:Page({PageState?.Page?.PageId}):Mod({ModuleState?.ModuleId}):";
-            try
-            {
-                // log on web server
-                foreach (var item in message)
-                    Console.WriteLine($"{_logPrefix} {item}");
-
                 // log to browser console
                 if (IsSafeToRunJs)
                 {
@@ -108,8 +111,8 @@ namespace ToSic.Sxc.Oqt.App
                         }
                         else
                             timeOut++;
-                    };
-                    
+                    }
+
                     // than log current message
                     ConsoleLog(message);
                 }
@@ -119,24 +122,66 @@ namespace ToSic.Sxc.Oqt.App
                     LogMessageQueue.Enqueue(message.ToArray());
                 }
             }
-            catch (Exception ex)
+
+            // log to oqtane log if possible
+            try
             {
-                Console.WriteLine($"Error:{_logPrefix}:{ex.Message}");
-                if (IsSafeToRunJs)
-                    JSRuntime.InvokeVoidAsync(ConsoleLogJs, "Error:", _logPrefix, ex.Message);
-                else
-                    LogMessageQueue.Enqueue(new List<object> { "Error:", _logPrefix, ex.Message }.ToArray());
+                foreach (var item in message)
+                    logger.LogDebug($"{_logPrefix} {item}");
+            }
+            catch
+            {
+                // sink
             }
         }
-
-        private void ConsoleLog(object[] message)
+        catch (Exception ex)
         {
-            var data = new List<object> { _logPrefix }.Concat(message);
-            JSRuntime.InvokeVoidAsync(ConsoleLogJs, data.ToArray());
+            LogError(ex);
         }
-        private string _logPrefix;
-        private const string ConsoleLogJs = "console.log";
-
-        #endregion
     }
+        
+    [InternalApi_DoNotUse_MayChangeWithoutNotice]
+    public void LogError(Exception ex) => LogError(ErrorHelper.ErrorMessage(ex, IsSuperUser || IsAdmin));
+        
+    [InternalApi_DoNotUse_MayChangeWithoutNotice]
+    public void LogError(string errorMessage)
+    {
+        try
+        {
+            // log to web server log
+            Console.WriteLine($"Error:{_logPrefix}:{errorMessage}");
+
+            // log to browser console
+            if (IsSafeToRunJs)
+                JSRuntime.InvokeVoidAsync(ConsoleLogJs, "Error:", _logPrefix, errorMessage);
+            else
+                LogMessageQueue.Enqueue(new List<object> { "Error:", _logPrefix ?? "", errorMessage }.ToArray());
+
+            // log error to oqtane log if possible
+            try
+            {
+                logger.LogError(errorMessage);
+            }
+            catch
+            {
+                // sink
+            }
+            AddModuleMessage(errorMessage, MessageType.Warning);
+        }
+        catch
+        {
+            // sink
+        }
+    }
+        
+    private void ConsoleLog(object[] message)
+    {
+        var data = new List<object?> { _logPrefix }.Concat(message);
+        JSRuntime.InvokeVoidAsync(ConsoleLogJs, data.ToArray());
+    } 
+    private string? _logPrefix;
+    private const string ConsoleLogJs = "console.log";
+    #endregion
+
+    public bool IsDev => Configuration["Environment"] == "Development";
 }

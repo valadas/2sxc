@@ -1,116 +1,207 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-using ToSic.Eav.Apps;
-using ToSic.Eav.Context;
-using ToSic.Lib.Logging;
-using ToSic.Eav.WebApi;
-using ToSic.Lib;
-using ToSic.Lib.DI;
-using ToSic.Lib.Documentation;
-using ToSic.Lib.Helpers;
+using ToSic.Eav.Data;
+using ToSic.Eav.DataSource;
+using ToSic.Eav.LookUp.Sys.Engines;
+using ToSic.Sxc.Adam;
+using ToSic.Sxc.Apps;
 using ToSic.Sxc.Code;
-using ToSic.Sxc.LookUp;
+using ToSic.Sxc.Code.Sys;
+using ToSic.Sxc.Code.Sys.CodeApi;
+using ToSic.Sxc.Code.Sys.CodeRunHelpers;
+using ToSic.Sxc.Context;
 using ToSic.Sxc.Oqt.Server.Controllers;
-using ToSic.Sxc.Oqt.Server.Controllers.AppApi;
+using ToSic.Sxc.Oqt.Server.Custom;
+using ToSic.Sxc.Services;
+using ToSic.Sxc.Sys.ExecutionContext;
 using ToSic.Sxc.WebApi;
-using ToSic.Sxc.WebApi.Adam;
-using IApp = ToSic.Sxc.Apps.IApp;
-using static ToSic.Eav.Parameters;
 
 // ReSharper disable once CheckNamespace
-namespace Custom.Hybrid
+namespace Custom.Hybrid;
+
+/// <summary>
+/// Custom base controller class for custom dynamic 2sxc app api controllers.
+/// It is without dependencies in class constructor, commonly provided with DI.
+/// </summary>
+[PrivateApi("This will already be documented through the Dnn DLL so shouldn't appear again in the docs")]
+public abstract class Api12(string logSuffix) : OqtStatefulControllerBase(logSuffix), IDynamicWebApi, IDynamicCode12, IHasCodeLog
 {
+    #region Setup
+
+    protected Api12() : this(EavWebApiConstants.HistoryNameWebApi) { }
+
+    [PrivateApi] public int CompatibilityLevel => CompatibilityLevels.CompatibilityLevel12;
+
+    internal ICodeDynamicApiHelper CodeApi => field ??= ExCtxOrNull.GetDynamicApi();
+
     /// <summary>
-    /// Custom base controller class for custom dynamic 2sxc app api controllers.
-    /// It is without dependencies in class constructor, commonly provided with DI.
+    /// Our custom dynamic 2sxc app api controllers, depends on event OnActionExecuting to provide dependencies (without DI in constructor).
     /// </summary>
-    [PrivateApi("This will already be documented through the Dnn DLL so shouldn't appear again in the docs")]
-    public abstract partial class Api12 : OqtStatefulControllerBase<DummyControllerReal>, IDynamicWebApi, IDynamicCode12, IHasCodeLog
+    /// <param name="context"></param>
+    [NonAction]
+    public override void OnActionExecuting(ActionExecutingContext context)
     {
-        protected Api12() : base(EavWebApiConstants.HistoryNameWebApi) { }
-
-        protected Api12(string logSuffix) : base(logSuffix) { }
-
-        /// <summary>
-        /// Our custom dynamic 2sxc app api controllers, depends on event OnActionExecuting to provide dependencies (without DI in constructor).
-        /// </summary>
-        /// <param name="context"></param>
-        [NonAction]
-        public override void OnActionExecuting(ActionExecutingContext context)
-        {
-            base.OnActionExecuting(context);
-
-            // Use the ServiceProvider of the current request to build DynamicCodeRoot
-            // Note that BlockOptional was already retrieved in the base class
-            _DynCodeRoot = context.HttpContext.RequestServices.Build<DynamicCodeRoot>().InitDynCodeRoot(BlockOptional, base.Log, ToSic.Sxc.Constants.CompatibilityLevel12);
-
-            _AdamCode = GetService<AdamCode>();
-            _AdamCode.ConnectToRoot(_DynCodeRoot, base.Log);
-
-            // In case SxcBlock was null, there is no instance, but we may still need the app
-            if (_DynCodeRoot.App == null)
-            {
-                base.Log.A("DynCode.App is null");
-                TryToAttachAppFromUrlParams(context);
-            }
-
-            // Ensure the Api knows what path it's on, in case it will
-            // create instances of .cs files
-            if (context.HttpContext.Items.TryGetValue(CodeCompiler.SharedCodeRootPathKeyInCache, out var createInstancePath))
-                CreateInstancePath = createInstancePath as string;
-        }
-
-        private void TryToAttachAppFromUrlParams(ActionExecutingContext context) => base.Log.Do(() =>
-        {
-            var found = false;
-            try
-            {
-                // Handed in from the App-API Transformer
-                context.HttpContext.Items.TryGetValue(AppApiDynamicRouteValueTransformer.HttpContextKeyForAppFolder,
-                    out var routeAppPathObj);
-                if (routeAppPathObj == null) return "";
-                var routeAppPath = routeAppPathObj.ToString();
-
-                var appId = CtxResolver.SetAppOrNull(routeAppPath)?.AppState.AppId ?? ToSic.Eav.Constants.NullId;
-
-                if (appId != ToSic.Eav.Constants.NullId)
-                {
-                    // Look up if page publishing is enabled - if module context is not available, always false
-                    base.Log.A($"AppId: {appId}");
-                    var app = LoadAppOnly(appId, CtxResolver.Site().Site);
-                    _DynCodeRoot.AttachApp(app);
-                    found = true;
-                }
-            }
-            catch
-            {
-                /* ignore */
-            }
-
-            return found.ToString();
-        });
-
-        /// <summary>
-        /// Only load the app in case we don't have a module context
-        /// </summary>
-        /// <param name="appId"></param>
-        /// <param name="site"></param>
-        /// <returns></returns>
-        private IApp LoadAppOnly(int appId, ISite site) => base.Log.Func($"{appId}", () =>
-        {
-            var app = GetService<ToSic.Sxc.Apps.App>();
-            app.PreInit(site);
-            return app.Init(new AppIdentity(AppConstants.AutoLookupZone, appId),
-                GetService<AppConfigDelegate>().Build());
-        });
-
-        #region IHasLog
-
-        /// <inheritdoc />
-        public new ICodeLog Log => _codeLog.Get(() => new CodeLog(base.Log));
-        private readonly GetOnce<ICodeLog> _codeLog = new();
-        [PrivateApi] ILog IHasLog.Log => base.Log;
-
-        #endregion
+        base.OnActionExecuting(context);
+        CtxHlp.OnActionExecutingEnd(context);
     }
+
+    #endregion
+
+    #region Infrastructure
+
+    /// <inheritdoc cref="IHasCodeLog.Log" />
+    public new ICodeLog Log => CtxHlp.CodeLog;
+
+    // ReSharper disable once InconsistentNaming
+    [PrivateApi]
+    public IExecutionContext ExCtxOrNull => CtxHlp.ExCtxOrNull;
+
+    /// <inheritdoc cref="ICanGetService.GetService{TService}"/>
+    public new TService GetService<TService>() where TService : class => CodeApi.GetService<TService>();
+
+    [PrivateApi("Not yet ready")]
+    public IDevTools DevTools => CodeApi.DevTools;
+
+    #endregion
+
+    #region App, Data, Settings, Resources, CmsContext
+
+    /// <inheritdoc cref="IDynamicCodeDocs.App" />
+    public IApp App => CodeApi?.App;
+
+    /// <inheritdoc cref="IDynamicCodeDocs.Data" />
+    public IDataSource Data => CodeApi?.Data;
+
+    /// <inheritdoc cref="IDynamicCode12Docs.Resources" />
+    public dynamic Resources => CodeApi.Resources;
+
+    /// <inheritdoc cref="IDynamicCode12Docs.Settings" />
+    public dynamic Settings => CodeApi.Settings;
+
+    /// <inheritdoc cref="IDynamicCodeDocs.CmsContext" />
+    public ICmsContext CmsContext => CodeApi?.CmsContext;
+
+
+    #endregion
+
+
+    #region AsDynamic / AsList implementations
+
+    /// <inheritdoc cref="IDynamicCodeDocs.AsDynamic(string, string)" />
+    [NonAction]
+    public dynamic AsDynamic(string json, string fallback = default) => CodeApi.Cdf.Json2Jacket(json, fallback);
+
+    /// <inheritdoc cref="IDynamicCodeDocs.AsDynamic(IEntity)" />
+    [NonAction]
+    public dynamic AsDynamic(IEntity entity) => CodeApi.Cdf.CodeAsDyn(entity);
+
+    /// <inheritdoc cref="IDynamicCodeDocs.AsDynamic(object)" />
+    [NonAction]
+    public dynamic AsDynamic(object dynamicEntity) => CodeApi.Cdf.AsDynamicFromObject(dynamicEntity);
+
+    /// <inheritdoc cref="IDynamicCode12Docs.AsDynamic(object[])" />
+    [NonAction]
+    public dynamic AsDynamic(params object[] entities) => CodeApi.Cdf.MergeDynamic(entities);
+
+    /// <inheritdoc cref="IDynamicCodeDocs.AsList" />
+    [NonAction]
+    public IEnumerable<dynamic> AsList(object list) => CodeApi.Cdf.CodeAsDynList(list);
+
+    #endregion
+
+    #region AsEntity
+
+    /// <inheritdoc cref="IDynamicCodeDocs.AsEntity" />
+    public IEntity AsEntity(object dynamicEntity) => CodeApi?.Cdf.AsEntity(dynamicEntity);
+
+    #endregion
+
+    #region Convert-Service
+    [PrivateApi] public IConvertService Convert => field ??= CodeApi.Convert;
+
+    #endregion
+
+
+    #region CreateSource implementations
+
+    /// <inheritdoc cref="IDynamicCodeDocs.CreateSource{T}(IDataSource, ILookUpEngine)" />
+    [NonAction]
+    public T CreateSource<T>(IDataSource inSource = null, ILookUpEngine configurationProvider = default) where T : IDataSource
+        => CodeApi.CreateSource<T>(inSource, configurationProvider);
+
+    /// <inheritdoc cref="IDynamicCodeDocs.CreateSource{T}(IDataStream)" />
+    [NonAction]
+    public T CreateSource<T>(IDataStream source) where T : IDataSource
+        => CodeApi.CreateSource<T>(source);
+
+    #endregion
+
+    #region Content, Presentation & List
+
+    /// <inheritdoc cref="IDynamicCodeDocs.Content" />
+    public new dynamic Content => CodeApi?.Content;
+
+    /// <inheritdoc cref="IDynamicCodeDocs.Header" />
+    public dynamic Header => CodeApi?.Header;
+
+
+    #endregion
+
+    #region Adam
+
+    /// <inheritdoc cref="IDynamicCodeDocs.AsAdam" />
+    [NonAction]
+    public IFolder AsAdam(ICanBeEntity item, string fieldName) => CodeApi?.AsAdam(item, fieldName);
+
+    /// <inheritdoc cref="IDynamicWebApi.SaveInAdam"/>
+    [NonAction]
+    public IFile SaveInAdam(NoParamOrder noParamOrder = default,
+        Stream stream = null,
+        string fileName = null,
+        string contentType = null,
+        Guid? guid = null,
+        string field = null,
+        string subFolder = "")
+        => CtxHlp.SaveInAdam(noParamOrder, stream, fileName, contentType, guid, field, subFolder);
+
+    #endregion
+
+    #region Link & Edit - added to API in 2sxc 10.01
+
+    /// <inheritdoc cref="IDynamicCodeDocs.Link" />
+    public ILinkService Link => CodeApi?.Link;
+
+    /// <inheritdoc cref="IDynamicCodeDocs.Edit" />
+    public IEditService Edit => CodeApi?.Edit;
+
+    #endregion
+
+    #region  CreateInstance implementation
+
+    string IGetCodePath.CreateInstancePath { get; set; }
+
+    protected CompileCodeHelper CompileCodeHlp => _compileCodeHlp ??= GetService<CompileCodeHelper>().Init(this);
+    private CompileCodeHelper _compileCodeHlp;
+
+    /// <inheritdoc cref="ICreateInstance.CreateInstance"/>
+    [NonAction]
+    public dynamic CreateInstance(string virtualPath, NoParamOrder noParamOrder = default, string name = null, string relativePath = null, bool throwOnError = true)
+        => CompileCodeHlp.CreateInstance(virtualPath: virtualPath, name: name, throwOnError: throwOnError);
+
+    #endregion
+
+    #region File Response / Download
+
+    /// <inheritdoc cref="IDynamicWebApi.File"/>
+    public dynamic File(NoParamOrder noParamOrder = default,
+        bool? download = null,
+        string virtualPath = null,
+        string contentType = null,
+        string fileDownloadName = null,
+        object contents = null
+    ) =>
+        new OqtWebApiShim(response: Response, this).File(noParamOrder, download, virtualPath, contentType, fileDownloadName, contents);
+
+    #endregion
+
 }

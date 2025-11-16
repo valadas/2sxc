@@ -2,11 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Collections.Generic;
-using ToSic.Eav.WebApi.Cms;
-using ToSic.Eav.WebApi.Dto;
-using ToSic.Eav.WebApi.Formats;
-using ToSic.Eav.WebApi.Routing;
-using ToSic.Sxc.WebApi.Cms;
+using ToSic.Sxc.Backend.Cms;
 
 namespace IntegrationSamples.SxcEdit01.Controllers
 {
@@ -29,12 +25,6 @@ namespace IntegrationSamples.SxcEdit01.Controllers
         // todo #mvcSec [DnnModuleAuthorize(AccessLevel = SecurityAccessLevel.View)]
         public Dictionary<Guid, int> Save([FromBody] EditDto package, int appId, bool partOfPage)
             => Real.Save(package, appId, partOfPage);
-
-        [HttpGet]
-        [HttpPost]
-        [AllowAnonymous] // Anonymous is ok, security check happens internally
-        public IEnumerable<EntityForPickerDto> EntityPicker(int appId, [FromBody] string[] items, string contentTypeName = null)
-            => Real.EntityPicker(appId, items, contentTypeName);
 
         /// <inheritdoc />
         [HttpGet]

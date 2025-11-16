@@ -1,113 +1,107 @@
 ﻿using Custom.Hybrid;
 using Oqtane.Repository;
 using Oqtane.Shared;
-using System;
-using System.Linq;
-using Oqtane.Models;
-using ToSic.Lib.DI;
-using ToSic.Lib.Documentation;
-using ToSic.Sxc.Code;
-using ToSic.Sxc.Images;
+using ToSic.Sxc.Context.Sys;
+using ToSic.Sxc.Images.Sys;
 using ToSic.Sxc.Oqt.Server.Plumbing;
 using ToSic.Sxc.Oqt.Server.Run;
-using ToSic.Sxc.Run;
 using ToSic.Sxc.Services;
+using ToSic.Sxc.Services.Link.Sys;
+using ToSic.Sxc.Sys.ExecutionContext;
+using ToSic.Sxc.Sys.Integration.Paths;
+using ToSic.Sys.Utils;
+using Page = Oqtane.Models.Page;
 
-namespace ToSic.Sxc.Oqt.Server.Services
+namespace ToSic.Sxc.Oqt.Server.Services;
+
+/// <summary>
+/// The Oqtane implementation of the <see cref="ILinkService"/>.
+/// </summary>
+[PrivateApi]
+internal class OqtLinkService(
+    IPageRepository pageRepository,
+    AliasResolver aliasResolver,
+    ImgResizeLinker imgLinker,
+    LazySvc<ILinkPaths> linkPathsLazy)
+    : LinkServiceBase(imgLinker, linkPathsLazy, connect: [pageRepository, aliasResolver])
 {
-    /// <summary>
-    /// The Oqtane implementation of the <see cref="ILinkService"/>.
-    /// </summary>
-    [PrivateApi]
-    public class OqtLinkService : LinkServiceBase
+    public Razor12 RazorPage { get; set; }
+    private IContextOfBlock _blockCtx;
+
+    private new OqtLinkPaths LinkPaths => (OqtLinkPaths) base.LinkPaths;
+
+    public override void ConnectToRoot(IExecutionContext codeRoot)
     {
-        public Razor12 RazorPage { get; set; }
-        private readonly IPageRepository _pageRepository;
-        private readonly SiteStateInitializer _siteStateInitializer;
-        private readonly LazySvc<IAliasRepository> _aliasRepositoryLazy;
-        private Sxc.Context.IContextOfBlock _context;
-
-        public OqtLinkService(
-            IPageRepository pageRepository,
-            SiteStateInitializer siteStateInitializer,
-            ImgResizeLinker imgLinker,
-            LazySvc<ILinkPaths> linkPathsLazy,
-            LazySvc<IAliasRepository> aliasRepositoryLazy
-        ) : base(imgLinker, linkPathsLazy)
-        {
-            _pageRepository = pageRepository;
-            _siteStateInitializer = siteStateInitializer;
-            _aliasRepositoryLazy = aliasRepositoryLazy;
-        }
-
-        private new OqtLinkPaths LinkPaths => (OqtLinkPaths) base.LinkPaths;
-
-        public override void ConnectToRoot(IDynamicCodeRoot codeRoot)
-        {
-            base.ConnectToRoot(codeRoot);
-            _context = codeRoot.Block?.Context;
-        }
-
-        protected override string ToApi(string api, string parameters = null) => ApiNavigateUrl(api, parameters);
-
-        protected override string ToPage(int? pageId, string parameters = null, string language = null) =>
-            PageNavigateUrl(pageId, parameters);
-
-        // Prepare Api link.
-        private string ApiNavigateUrl(string api, string parameters)
-        {
-            var alias = _siteStateInitializer.InitializedState.Alias;
-
-            var pathWithQueryString = CombineApiWithQueryString(
-                LinkPaths.ApiFromSiteRoot(App.Folder, api),
-                parameters);
-
-            var relativePath = string.IsNullOrEmpty(alias.Path)
-                ? pathWithQueryString
-                : $"/{alias.Path}{pathWithQueryString}";
-
-            return relativePath;
-        }
-
-        // Prepare Page link.
-        private string PageNavigateUrl(int? pageId, string parameters, bool absoluteUrl = true)
-        {
-            var currentPageId = _context?.Page?.Id;
-
-            if ((pageId ?? currentPageId) == null)
-                throw new($"Error, PageId is unknown, pageId: {pageId}, currentPageId: {currentPageId} .");
-
-            if (pageId.HasValue)
-            {
-                var page = _pageRepository.GetPage(pageId.Value, false);
-                if (page != null) return PageUrlBuilder(page, parameters, absoluteUrl);
-            }
-
-            // if pageId is invalid, fallback to currentPageId
-            var currentPage = _pageRepository.GetPage(currentPageId.Value, false);
-            var currentPageUrl = PageUrlBuilder(currentPage, parameters, absoluteUrl);
-
-            return CurrentPageUrlWithEventualHashError(pageId, currentPageUrl);
-        }
-
-        private string PageUrlBuilder(Page page, string parameters, bool absoluteUrl)
-        {
-            var alias = _aliasRepositoryLazy.Value.GetAliases()
-                .OrderByDescending(a => /*a.IsDefault*/
-                    a.Name.Length) // TODO: a.IsDefault DESC after upgrade to Oqt v3.0.3+
-                //.ThenByDescending(a => a.Name.Length)
-                .ThenBy(a => a.Name)
-                .FirstOrDefault(a => a.SiteId == page.SiteId);
-
-            if (alias == null)
-                throw new($"Error, Alias is unknown, pageId: {page.PageId}, siteId: {page.SiteId}.");
-
-            // for invalid page numbers just skip that part 
-            var relativePath =
-                Utilities.NavigateUrl(alias.Path, page?.Path ?? string.Empty,
-                    parameters ?? string.Empty); // NavigateUrl do not works with absolute links
-
-            return absoluteUrl ? $"{LinkPaths.GetCurrentLinkRoot()}{relativePath}" : relativePath;
-        }
+        base.ConnectToRoot(codeRoot);
+        _blockCtx = codeRoot.GetState<IContextOfBlock>();
     }
+
+    protected override string ToApi(string api, string parameters = null) => ApiNavigateUrl(api, parameters);
+
+    protected override string ToPage(int? pageId, string parameters = null, string language = null) =>
+        PageNavigateUrl(pageId, parameters);
+
+    // Prepare Api link.
+    private string ApiNavigateUrl(string api, string parameters)
+    {
+        var alias = aliasResolver.Alias;
+
+        var pathWithQueryString = CombineApiWithQueryString(
+            LinkPaths.ApiFromSiteRoot(AppFolder, api),
+            parameters);
+
+        var relativePath = string.IsNullOrEmpty(alias.Path)
+            ? pathWithQueryString
+            : $"/{alias.Path}{pathWithQueryString}";
+
+        return relativePath;
+    }
+
+    // Prepare Page link.
+    private string PageNavigateUrl(int? pageId, string parameters, bool absoluteUrl = true)
+    {
+        var currentPageId = _blockCtx?.Page?.Id;
+
+        if ((pageId ?? currentPageId) == null)
+            throw new($"Error, PageId is unknown, pageId: {pageId}, currentPageId: {currentPageId} .");
+
+        if (pageId.HasValue)
+        {
+            var page = pageRepository.GetPage(pageId.Value, false);
+            if (page != null) return PageUrlBuilder(page, parameters, absoluteUrl);
+        }
+
+        // if pageId is invalid, fallback to currentPageId
+        var currentPage = pageRepository.GetPage(currentPageId.Value, false);
+        var currentPageUrl = PageUrlBuilder(currentPage, parameters, absoluteUrl);
+
+        return CurrentPageUrlWithEventualHashError(pageId, currentPageUrl);
+    }
+
+    private string PageUrlBuilder(Page page, string parameters, bool absoluteUrl)
+    {
+        aliasResolver.InitIfEmpty(page.SiteId);
+        var alias = aliasResolver.Alias 
+            ?? throw new($"Error, Alias is unknown, pageId: {page.PageId}, siteId: {page.SiteId}."); 
+
+        // for invalid page numbers just skip that part 
+        var relativePath =
+            Utilities.NavigateUrl(alias.Path, page?.Path ?? string.Empty, QueryParametersForOqtane(parameters)) // NavigateUrl do not works with absolute links
+            .PrefixSlash(); // fix for Oqt v5.1.0+ NavigateUrl returns relative path without leading slash
+
+        return absoluteUrl ? $"{LinkPaths.GetCurrentLinkRoot()}{relativePath}" : relativePath;
+    }
+
+    /// <summary>
+    /// Oqtane Utilities.NavigateUrl and Utilities.ParseParameters
+    /// expects queryParameters that starts with '?' so we need to add it.
+    /// This is to ensure that that oqtane will work with / in query string,
+    /// or oqtane will recognize it as special oqtane UrlParameters
+    /// that starts with /!/ separator in page route part of url and
+    /// that is currently not expected in 2sxc apps.
+    /// </summary>
+    /// <param name="queryParameters"></param>
+    /// <returns>query params that starts with ?</returns>
+    private static string QueryParametersForOqtane(string queryParameters) 
+        => string.IsNullOrEmpty(queryParameters) ? string.Empty : $"?{queryParameters?.TrimStart('?')}";
 }

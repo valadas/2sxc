@@ -13,10 +13,7 @@
 */
 
 // ReSharper disable once CheckNamespace
-namespace Dnn.Modules.DynamicContentViewer.Helpers
-{
+namespace Dnn.Modules.DynamicContentViewer.Helpers;
 
-    class Dnn8Bugs
-    {
-    }
-}
+[ShowApiWhenReleased(ShowApiMode.Never)]
+class Dnn8Bugs;

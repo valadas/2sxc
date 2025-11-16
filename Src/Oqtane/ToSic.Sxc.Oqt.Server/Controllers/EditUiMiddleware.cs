@@ -1,97 +1,117 @@
-﻿using System;
+﻿using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using System.Collections.Generic;
-using System.IO;
-using System.Runtime.Caching;
-using System.Text;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Antiforgery;
 using Oqtane.Repository;
+using System.Text;
 using ToSic.Sxc.Oqt.Server.Blocks.Output;
 using ToSic.Sxc.Oqt.Server.Plumbing;
-using ToSic.Sxc.Web;
-using ToSic.Sxc.Web.EditUi;
+using ToSic.Sxc.Render.Sys.JsContext;
+using ToSic.Sxc.Web.Sys.EditUi;
+using ToSic.Sys.Caching;
 
-namespace ToSic.Sxc.Oqt.Server.Controllers
+namespace ToSic.Sxc.Oqt.Server.Controllers;
+
+internal class EditUiMiddleware
 {
-    public class EditUiMiddleware
+    private const int UnknownPageId = -1;
+
+    public static Task PageOutputCached(HttpContext context, IWebHostEnvironment env, string virtualPath, EditUiResourceSettings settings)
     {
-        private static readonly MemoryCache Cache = MemoryCache.Default;
+        context.Response.Headers.TryAdd("test-dev", "2sxc");
 
-        public static Task PageOutputCached(HttpContext context, IWebHostEnvironment env, string virtualPath, EditUiResourceSettings settings)
+        var sp = context.RequestServices;
+
+        var key = CacheKey(virtualPath);
+        var memoryCacheService = sp.GetService<MemoryCacheService>();
+        if (!memoryCacheService.TryGet<string>(key, out var html))
         {
-            context.Response.Headers.Add("test-dev", "2sxc");
+            var path = Path.Combine(env.WebRootPath, virtualPath);
+            if (!File.Exists(path)) throw new FileNotFoundException("File not found: " + path);
 
-            var key = CacheKey(virtualPath);
-            if (Cache.Get(key) is not string html)
-            {
-                var path = Path.Combine(env.WebRootPath, virtualPath);
-                if (!File.Exists(path)) throw new FileNotFoundException("File not found: " + path);
-
-                var bytesInFile = File.ReadAllBytes(path);
-                html = Encoding.Default.GetString(bytesInFile);
-                html = HtmlDialog.CleanImport(html);
-                Cache.Set(key, html, GetCacheItemPolicy(path));
-            }
-
-            //var html = Encoding.Default.GetString(bytes);
-
-            // inject JsApi to html content
-            var pageIdString = context.Request.Query[HtmlDialog.PageIdInUrl];
-            var pageId = !string.IsNullOrEmpty(pageIdString) ? Convert.ToInt32(pageIdString) : -1;
-
-            var sp = context.RequestServices;
-            var siteStateInitializer = sp.GetService<SiteStateInitializer>();
-            
-            // find siteId from pageId (if provided)
-            var siteId = 1; // TODO: @STV - why do we have the site with all the null checks?
-            if (pageId != -1)
-            {
-                // siteState need to be initialized for DB connection to get siteId from pageId
-                var _ = siteStateInitializer?.InitializedState;
-                var pages = sp.GetRequiredService<IPageRepository>();
-                var page = pages.GetPage(pageId, false);
-                siteStateInitializer?.InitIfEmpty(page?.SiteId);
-                siteId = page?.SiteId ?? siteId;
-            }
-
-            var siteRoot = OqtPageOutput.GetSiteRoot(siteStateInitializer?.InitializedState);
-            var antiForgery = sp.GetRequiredService<IAntiforgery>();
-            var tokenSet = antiForgery.GetAndStoreTokens(context);
-            var rsvt = tokenSet.RequestToken;
-            var content = OqtJsApi.GetJsApi(pageId, siteRoot, rsvt);
-
-            // New feature to get resources
-            var htmlHead = "";
-            try
-            {
-                var editUiResources = sp.GetRequiredService<EditUiResources>();
-                var assets = editUiResources.GetResources(true, siteId, settings);
-                htmlHead = assets.HtmlHead;
-            }
-            catch { /* ignore */ }
-
-            html = HtmlDialog.UpdatePlaceholders(html, content, pageId, "", htmlHead, $"<input name=\"__RequestVerificationToken\" type=\"hidden\" value=\"{rsvt}\" >");
-
-            var bytes = Encoding.Default.GetBytes(html);
-
-            // html response
-            context.Response.ContentType = "text/html";
-            //context.Response.Body.Write(Encoding.Unicode.GetBytes(html));
-            context.Response.Body.WriteAsync(bytes);
-
-            return Task.CompletedTask;
+            var bytesInFile = File.ReadAllBytes(path);
+            html = Encoding.Default.GetString(bytesInFile);
+            html = HtmlDialog.CleanImport(html);
+            memoryCacheService.Set(key, html, p => p.WatchFiles([path]));
         }
 
-        private static string CacheKey(string virtualPath) => $"2sxc-edit-ui-page-{virtualPath}";
+        var pageId = GetPageId(context);
 
-        private static CacheItemPolicy GetCacheItemPolicy(string filePath)
+        // find siteId from pageId (if provided)
+        var aliasResolver = sp.GetService<AliasResolver>();
+
+        // 1. (keep order of lines)
+        var siteId = EnsureCorrectAliasAndGetSiteIdFromPageId(pageId, aliasResolver, sp);
+
+        // New feature to get resources
+        var htmlHead = "";
+        try
         {
-            var cacheItemPolicy = new CacheItemPolicy();
-            cacheItemPolicy.ChangeMonitors.Add(new HostFileChangeMonitor(new List<string> { filePath }));
-            return cacheItemPolicy;
+            htmlHead = sp.GetRequiredService<EditUiResources>().GetResources(true, siteId, settings).HtmlHead;
         }
+        catch { /* ignore */ }
+
+        // 2. (keep order of lines)
+        var siteRoot = OqtPageOutput.GetSiteRoot(aliasResolver.Alias);
+
+        var rvt = sp.GetRequiredService<IAntiforgery>().GetAndStoreTokens(context).RequestToken;
+
+        var withPublicKey = WithPublicKey(context);
+
+        // inject JsApi to html content
+        var content = sp.GetRequiredService<IJsApiService>().GetJsApiJson(pageId, siteRoot, rvt, withPublicKey);
+
+        html = HtmlDialog.UpdatePlaceholders(html, content, pageId, "", htmlHead, $"<input name=\"__RequestVerificationToken\" type=\"hidden\" value=\"{rvt}\" >");
+
+        var bytes = Encoding.Default.GetBytes(html);
+
+        // html response
+        context.Response.ContentType = "text/html";
+        //context.Response.Body.Write(Encoding.Unicode.GetBytes(html));
+        context.Response.Body.WriteAsync(bytes);
+
+        return Task.CompletedTask;
+    }
+
+    private static string CacheKey(string virtualPath) => $"ToSic.Sxc.Oqt.Server.Controllers.{nameof(EditUiMiddleware)}:{virtualPath}";
+
+    private static int GetPageId(HttpContext context)
+    {
+        var pageIdString = context.Request.Query[HtmlDialog.PageIdInUrl];
+
+        return !string.IsNullOrEmpty(pageIdString) 
+            ? Convert.ToInt32(pageIdString) 
+            : UnknownPageId;
+    }
+
+    private static bool WithPublicKey(HttpContext context)
+    {
+        // 'wpk' should be provided in query string
+        var withPublicKeyString = context.Request.Query[HtmlDialog.WithPublicKey];
+        return !string.IsNullOrEmpty(withPublicKeyString) && Convert.ToBoolean(withPublicKeyString);
+    }
+
+    /// <summary>
+    /// find siteId from pageId (if provided)
+    /// initialize SiteState for DB connection
+    /// </summary>
+    /// <param name="pageId"></param>
+    /// <param name="aliasResolver"></param>
+    /// <param name="sp"></param>
+    /// <returns>siteId or NULL</returns>
+    /// <remarks>internally find correct alias and store it in SiteState.Alias for reuse</remarks>
+    private static int? EnsureCorrectAliasAndGetSiteIdFromPageId(int pageId, AliasResolver aliasResolver, IServiceProvider sp)
+    {
+        if (pageId == UnknownPageId) return null;
+
+        // FIX: No database provider has been configured for this DbContext. A provider can be configured by overriding the 'DbContext.OnConfiguring' method or by using 'AddDbContext' on the application service provider.
+        var _ = aliasResolver?.Alias; // do not remove or reorder this line (it will initialize SiteState for DB connection)
+
+        var pages = sp.GetRequiredService<IPageRepository>(); 
+        var page = pages.GetPage(pageId, false); // SiteState need to be initialized for DB connection
+
+        aliasResolver?.InitIfEmpty(page?.SiteId); // store correct alias in SiteState.Alias
+
+        return page?.SiteId;
     }
 }

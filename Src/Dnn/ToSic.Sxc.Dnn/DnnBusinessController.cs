@@ -11,14 +11,14 @@ using ToSic.Sxc.Dnn.StartUp;
 // at Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService[T](IServiceProvider provider)
 // at ToSic.Eav.Factory.GetServiceProvider()"
 // ReSharper disable once CheckNamespace
-namespace ToSic.SexyContent
+namespace ToSic.Sxc;
+
+[ShowApiWhenReleased(ShowApiMode.Never)]
+public class DnnBusinessController: ToSic.Sxc.Dnn.DnnBusinessController, IUpgradeable, IVersionable
 {
-    public class DnnBusinessController: ToSic.Sxc.Dnn.DnnBusinessController, IUpgradeable, IVersionable
+    public new string UpgradeModule(string version)
     {
-        public new string UpgradeModule(string version)
-        {
-            new StartupDnn().Configure(); // can't call it from ToSic.Sxc.Dnn.DnnBusinessController because of circular dependency
-            return base.UpgradeModule(version);
-        }
+        new StartupDnn().Configure(); // can't call it from ToSic.Sxc.Dnn.DnnBusinessController because of circular dependency
+        return base.UpgradeModule(version);
     }
 }

@@ -1,160 +1,162 @@
-﻿using System;
-using System.Collections.Generic;
-using ToSic.Eav;
-using ToSic.Eav.Data;
+﻿using ToSic.Eav.Data;
 using ToSic.Eav.DataSource;
-using ToSic.Eav.LookUp;
-using ToSic.Lib.Documentation;
-using ToSic.Lib.Helpers;
+using ToSic.Eav.LookUp.Sys.Engines;
 using ToSic.Sxc.Adam;
 using ToSic.Sxc.Apps;
-using ToSic.Sxc.Blocks;
+using ToSic.Sxc.Blocks.Sys;
 using ToSic.Sxc.Code;
+using ToSic.Sxc.Code.Sys;
+using ToSic.Sxc.Code.Sys.CodeApi;
+using ToSic.Sxc.Code.Sys.CodeRunHelpers;
 using ToSic.Sxc.Context;
-using ToSic.Sxc.Data;
-using ToSic.Sxc.DataSources;
-using ToSic.Sxc.Dnn.WebApi;
-using ToSic.Sxc.Dnn.WebApi.HttpJson;
-using ToSic.Sxc.Dnn.WebApi.Logging;
+using ToSic.Sxc.Dnn.Code;
+using ToSic.Sxc.Dnn.Run;
+using ToSic.Sxc.Dnn.WebApi.Sys;
+using ToSic.Sxc.Dnn.WebApi.Sys.HttpJson;
 using ToSic.Sxc.Services;
-using ToSic.Sxc.WebApi;
-using IHasLog = ToSic.Lib.Logging.IHasLog;
-using ILog = ToSic.Lib.Logging.ILog;
-using static ToSic.Eav.Parameters;
+using ToSic.Sxc.Sys.ExecutionContext;
 
-namespace ToSic.Sxc.Dnn
+namespace ToSic.Sxc.Dnn;
+
+/// <summary>
+/// This is the base class for all custom API Controllers. <br/>
+/// With this, your code receives the full context  incl. the current App, DNN, Data, etc.
+/// </summary>
+[PublicApi("This was the official base class before v12. Try to move away from it, go to the latest base class on Custom.Hybrid.ApiTyped")]
+[DnnLogExceptions]
+[Obsolete("This will continue to work, but you should use the Custom.Hybrid.Api14 or Custom.Dnn.Api12 instead.")]
+[DefaultToNewtonsoftForHttpJson]
+[ShowApiWhenReleased(ShowApiMode.Never)]
+public abstract class ApiController : DnnSxcCustomControllerBase,
+    IHasDnn,
+    ICreateInstance,
+    IDynamicCode, 
+    IDynamicWebApi, 
+    IHasCodeLog
 {
-    /// <summary>
-    /// This is the base class for all custom API Controllers. <br/>
-    /// With this, your code receives the full context  incl. the current App, DNN, Data, etc.
-    /// </summary>
-    [PublicApi("This was the official base class before v12. Try to move away from it, go to the latest base class on Custom.Dnn.Api12")]
-    [DnnLogExceptions]
-    [Obsolete("This will continue to work, but you should use the Custom.Hybrid.Api14 or Custom.Dnn.Api12 instead.")]
-    [DefaultToNewtonsoftForHttpJson]
-    public abstract class ApiController : DynamicApiController, 
-        IDnnDynamicWebApi, 
-        IDynamicCode, 
-        IDynamicWebApi, 
-        IHasDynamicCodeRoot,
-        IHasCodeLog
-    {
-        [PrivateApi]
-        public const string ErrRecommendedNamespaces = "To use it, use the new base class from Custom.Hybrid.Api14 or Custom.Dnn.Api12 instead.";
+    internal const string ErrRecommendedNamespaces = "To use it, use the new base class from Custom.Hybrid.Api14 or Custom.Dnn.Api12 instead.";
 
-        /// <remarks>
-        /// Probably obsolete, but a bit risky to just remove
-        /// We will only add it to ApiController but not to Api12, because no new code should ever use that.
-        /// </remarks>
-        [PrivateApi] public IBlock Block => GetBlockAndContext().LoadBlock();
+    internal ICodeDynamicApiHelper CodeApi => field ??= ExCtx.GetDynamicApi();
 
-        [PrivateApi] public int CompatibilityLevel => _DynCodeRoot.CompatibilityLevel;
+    /// <remarks>
+    /// Probably obsolete, but a bit risky to just remove
+    /// We will only add it to ApiController but not to Api12, because no new code should ever use that.
+    /// </remarks>
+    [PrivateApi]
+    [ShowApiWhenReleased(ShowApiMode.Never)]
+    public IBlock Block => SysHlp.GetBlockAndContext(Request);
 
-        /// <inheritdoc />
-        public IApp App => _DynCodeRoot.App;
+    [PrivateApi]
+    [ShowApiWhenReleased(ShowApiMode.Never)]
+    public int CompatibilityLevel => CompatibilityLevels.CompatibilityLevel9Old;
 
-        /// <inheritdoc />
-        public IBlockDataSource Data => _DynCodeRoot.Data;
+    /// <inheritdoc cref="IDynamicCodeDocs.App" />
+    public IApp App => CodeApi.App;
 
+    /// <inheritdoc cref="IDynamicCodeDocs.Data" />
+    public IDataSource Data => CodeApi.Data;
 
-        #region AsDynamic implementations
-        /// <inheritdoc/>
-        public dynamic AsDynamic(string json, string fallback = DynamicJacket.EmptyJson) => _DynCodeRoot.AsDynamic(json, fallback);
+    /// <inheritdoc cref="ICanGetService.GetService{TService}"/>
+    public TService GetService<TService>() where TService : class => SysHlp.GetService<TService>();
 
-        /// <inheritdoc />
-        public dynamic AsDynamic(IEntity entity) => _DynCodeRoot.AsDynamic(entity);
+    /// <inheritdoc cref="IHasDnn.Dnn"/>
+    public IDnnContext Dnn => (ExCtx as IHasDnn)?.Dnn;
 
-        /// <inheritdoc />
-        public dynamic AsDynamic(object dynamicEntity) => _DynCodeRoot.AsDynamic(dynamicEntity);
+    #region AsDynamic implementations
+    /// <inheritdoc cref="IDynamicCodeDocs.AsDynamic(string, string)" />
+    public dynamic AsDynamic(string json, string fallback = default) => CodeApi.Cdf.Json2Jacket(json, fallback);
 
-        ///// <inheritdoc />
-        //[PublicApi("Careful - still Experimental in 12.02")]
-        //public dynamic AsDynamic(params object[] entities) => _DynCodeRoot.AsDynamic(entities);
+    /// <inheritdoc cref="IDynamicCodeDocs.AsDynamic(IEntity)" />
+    public dynamic AsDynamic(IEntity entity) => CodeApi.Cdf.CodeAsDyn(entity);
 
-        /// <inheritdoc />
-        public IEntity AsEntity(object dynamicEntity) => _DynCodeRoot.AsEntity(dynamicEntity);
+    /// <inheritdoc cref="IDynamicCodeDocs.AsDynamic(object)" />
+    public dynamic AsDynamic(object dynamicEntity) => CodeApi.Cdf.AsDynamicFromObject(dynamicEntity);
 
-        #endregion
+    /// <inheritdoc cref="IDynamicCode12Docs.AsDynamic(object[])" />
+    public IEntity AsEntity(object dynamicEntity) => CodeApi.Cdf.AsEntity(dynamicEntity);
+
+    #endregion
 
 
-        #region AsList
+    #region AsList
 
-        /// <inheritdoc />
-        public IEnumerable<dynamic> AsList(object list) => _DynCodeRoot?.AsList(list);
+    /// <inheritdoc />
+    public IEnumerable<dynamic> AsList(object list) => CodeApi?.Cdf.CodeAsDynList(list);
 
-        #endregion
+    #endregion
 
-        #region CreateSource implementations
+    #region CreateSource implementations
 
-        /// <inheritdoc />
-        public T CreateSource<T>(IDataSource inSource = null, ILookUpEngine configurationProvider = default) where T : IDataSource
-            => _DynCodeRoot.CreateSource<T>(inSource, configurationProvider);
+    /// <inheritdoc cref="IDynamicCodeDocs.CreateSource{T}(IDataSource, ILookUpEngine)" />
+    public T CreateSource<T>(IDataSource inSource = null, ILookUpEngine configurationProvider = default) where T : IDataSource
+        => CodeApi.CreateSource<T>(inSource, configurationProvider);
 
-        /// <inheritdoc />
-        public T CreateSource<T>(IDataStream source) where T : IDataSource
-            => _DynCodeRoot.CreateSource<T>(source);
+    /// <inheritdoc cref="IDynamicCodeDocs.CreateSource{T}(IDataStream)" />
+    public T CreateSource<T>(IDataStream source) where T : IDataSource
+        => CodeApi.CreateSource<T>(source);
 
-        #endregion
+    #endregion
 
-        #region Content, Presentation & List
+    #region Content, Presentation & List
 
-        /// <inheritdoc />
-        public dynamic Content => _DynCodeRoot.Content;
+    /// <inheritdoc cref="IDynamicCodeDocs.Content" />
+    public dynamic Content => CodeApi.Content;
 
-        /// <inheritdoc />
-        public dynamic Header => _DynCodeRoot.Header;
-
-
-        #endregion
-
-        #region Adam
-
-        /// <inheritdoc />
-        public IFolder AsAdam(IDynamicEntity entity, string fieldName) => _DynCodeRoot.AsAdam(AsEntity(entity), fieldName);
-
-        /// <inheritdoc />
-        public IFolder AsAdam(IEntity entity, string fieldName) => _DynCodeRoot.AsAdam(entity, fieldName);
+    /// <inheritdoc cref="IDynamicCodeDocs.Header" />
+    public dynamic Header => CodeApi.Header;
 
 
-        ///// <inheritdoc />
-        //public new ToSic.Sxc.Adam.IFile SaveInAdam(string noParamOrder = ToSic.Eav.Parameters.Protector,
-        //    Stream stream = null,
-        //    string fileName = null,
-        //    string contentType = null,
-        //    Guid? guid = null,
-        //    string field = null,
-        //    string subFolder = "")
-        //    => base.SaveInAdam(noParamOrder, stream, fileName, contentType, guid, field, subFolder);
+    #endregion
 
-        public dynamic File(string noParamOrder = Parameters.Protector, bool? download = null, string virtualPath = null,
-            string contentType = null, string fileDownloadName = null, object contents = null) =>
-            throw new NotSupportedException("Not implemented. " + ErrRecommendedNamespaces);
+    #region Adam
 
-        #endregion
+    /// <inheritdoc cref="IDynamicCodeDocs.AsAdam" />
+    public IFolder AsAdam(ICanBeEntity item, string fieldName) => CodeApi.AsAdam(item, fieldName);
 
-        #region Link & Edit - added to API in 2sxc 10.01
+    public dynamic File(NoParamOrder noParamOrder = default, bool? download = null, string virtualPath = null,
+        string contentType = null, string fileDownloadName = null, object contents = null) =>
+        throw new NotSupportedException("Not implemented. " + ErrRecommendedNamespaces);
 
-        /// <inheritdoc />
-        public ILinkService Link => _DynCodeRoot?.Link;
+    /// <inheritdoc cref="IDynamicWebApi.SaveInAdam"/>
+    public IFile SaveInAdam(NoParamOrder noParamOrder = default, Stream stream = null, string fileName = null, string contentType = null,
+        Guid? guid = null, string field = null, string subFolder = "")
+        => DynHlp.SaveInAdam(noParamOrder, stream, fileName, contentType, guid, field, subFolder);
 
-        /// <inheritdoc />
-        public IEditService Edit => _DynCodeRoot?.Edit;
+    #endregion
 
-        #endregion
-        #region RunContext WiP
+    #region Link & Edit - added to API in 2sxc 10.01
 
-        /// <inheritdoc />
-        public ICmsContext CmsContext => _DynCodeRoot?.CmsContext;
-        #endregion
+    /// <inheritdoc cref="IDynamicCodeDocs.Link" />
+    public ILinkService Link => CodeApi?.Link;
 
-        #region IHasLog
+    /// <inheritdoc cref="IDynamicCodeDocs.Edit" />
+    public IEditService Edit => CodeApi?.Edit;
 
-        /// <inheritdoc />
-        public new ICodeLog Log => _codeLog.Get(() => new CodeLog(base.Log));
-        private readonly GetOnce<ICodeLog> _codeLog = new GetOnce<ICodeLog>();
+    #endregion
 
-        [PrivateApi] ILog IHasLog.Log => base.Log;
+    #region CmsContext
 
-        #endregion
-    }
+    /// <inheritdoc cref="IDynamicCodeDocs.CmsContext" />
+    public ICmsContext CmsContext => CodeApi?.CmsContext;
+    #endregion
+
+    #region CreateInstance
+
+    string IGetCodePath.CreateInstancePath { get; set; }
+
+    private CompileCodeHelper CompileCodeHlp => field ??= GetService<CompileCodeHelper>().Init(this);
+
+
+    /// <inheritdoc cref="ICreateInstance.CreateInstance"/>
+    public dynamic CreateInstance(string virtualPath, NoParamOrder noParamOrder = default, string name = null, string relativePath = null, bool throwOnError = true)
+        => CompileCodeHlp.CreateInstance(virtualPath: virtualPath, name: name, throwOnError: throwOnError);
+
+    #endregion
+
+    #region IHasLog
+
+    /// <inheritdoc cref="IHasCodeLog.Log" />
+    public new ICodeLog Log => SysHlp.CodeLog;
+
+    #endregion
 }

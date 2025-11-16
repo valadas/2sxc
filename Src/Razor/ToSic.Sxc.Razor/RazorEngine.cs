@@ -1,76 +1,91 @@
-﻿using System;
-using System.IO;
-using System.Threading.Tasks;
-using Custom.Hybrid;
-using ToSic.Lib.DI;
-using ToSic.Lib.Documentation;
-using ToSic.Lib.Logging;
-using ToSic.Sxc.Code;
+﻿using Custom.Razor.Sys;
+using Microsoft.AspNetCore.Mvc.Razor;
+using ToSic.Sxc.Code.Sys;
+using ToSic.Sxc.Code.Sys.CodeErrorHelp;
 using ToSic.Sxc.Engines;
+using ToSic.Sxc.Render.Sys;
+using ToSic.Sxc.Render.Sys.Specs;
+using ToSic.Sxc.Sys.ExecutionContext;
 
-namespace ToSic.Sxc.Razor
+namespace ToSic.Sxc.Razor;
+
+/// <summary>
+/// The razor engine, which compiles / runs engine templates
+/// </summary>
+[PrivateApi("used to be marked as internal, but it doesn't make sense to show in docs")]
+[EngineDefinition(Name = "Razor")]
+internal class RazorEngine(
+    EngineBase.Dependencies services,
+    LazySvc<IRazorRenderer> razorRenderer,
+    LazySvc<IExecutionContextFactory> codeRootFactory,
+    LazySvc<CodeErrorHelpService> errorHelp,
+    LazySvc<IRenderingHelper> renderingHelper)
+    : EngineBase(services, connect: [codeRootFactory, errorHelp, renderingHelper, razorRenderer]), IRazorEngine
 {
-    /// <summary>
-    /// The razor engine, which compiles / runs engine templates
-    /// </summary>
-    [PrivateApi("used to be marked as internal, but it doesn't make sense to show in docs")]
-    [EngineDefinition(Name = "Razor")]
-
-    public partial class RazorEngine : EngineBase, IRazorEngine
+    /// <inheritdoc/>
+    protected override (string? Contents, List<Exception>? Exception) RenderEntryRazor(RenderSpecs specs)
     {
-        private readonly LazySvc<DynamicCodeRoot> _dynCodeRootLazy;
-        public IRazorRenderer RazorRenderer { get; }
-
-        #region Constructor / DI
-
-        public RazorEngine(MyServices services, IRazorRenderer razorRenderer, LazySvc<DynamicCodeRoot> dynCodeRootLazy) : base(services)
+        var l = Log.Fn<(string?, List<Exception>?)>();
+        var task = RenderTask(specs);
+        try
         {
-            ConnectServices(
-                _dynCodeRootLazy = dynCodeRootLazy,
-                RazorRenderer = razorRenderer
-            );
-        }
-        
-        #endregion
-
-        /// <inheritdoc/>
-        protected override string RenderTemplate(object data) => Log.Func(() =>
-        {
-            var task = RenderTask();
             task.Wait();
-            return (task.Result.ToString(), "ok");
-        });
+            var result = task.Result;
 
-        [PrivateApi]
-        public async Task<TextWriter> RenderTask()
-        {
-            Log.A("will render into TextWriter");
-            try
-            {
-                if (string.IsNullOrEmpty(TemplatePath)) return null;
-                var dynCode = _dynCodeRootLazy.Value.InitDynCodeRoot(Block, Log, Constants.CompatibilityLevel12);
+            if (result.Exception == null)
+                return l.ReturnAsOk((result.TextWriter?.ToString(), null));
 
-                var result = await RazorRenderer.RenderToStringAsync(TemplatePath, new object(),
-                    rzv =>
-                    {
-                        if (rzv.RazorPage is not IRazor asSxc) return;
-                        asSxc.ConnectToRoot(dynCode);
-                        // Note: Don't set the purpose here any more, it's a deprecated feature in 12+
-                    });
-                var writer = new StringWriter();
-                await writer.WriteAsync(result);
-                return writer;
-            }
-            catch (Exception maybeIEntityCast)
-            {
-                ErrorHelp.AddHelpIfKnownError(maybeIEntityCast);
-                throw;
-            }
-
-            // WIP https://github.com/dotnet/aspnetcore/blob/master/src/Mvc/Mvc.Razor.RuntimeCompilation/src/RuntimeViewCompiler.cs#L397-L404
-            // maybe also https://stackoverflow.com/questions/48206993/how-to-load-asp-net-core-razor-view-dynamically-at-runtime
-            // later also check loading more DLLs on https://stackoverflow.com/questions/58685966/adding-assemblies-types-to-be-made-available-to-razor-page-at-runtime
-
+            var errorMessage = renderingHelper.Value.Init(Block).DesignErrorMessage([result.Exception], true);
+            return l.Return((errorMessage, [result.Exception]));
         }
+        catch (Exception ex)
+        {
+            var myEx = task.Exception?.InnerException ?? ex;
+            return l.Return((myEx.ToString(), [myEx]));
+        }
+    }
+
+    [PrivateApi]
+    private async Task<(TextWriter? TextWriter, Exception? Exception)> RenderTask(RenderSpecs specs)
+    {
+        Log.A("will render into TextWriter");
+        RazorView? page = null;
+        try
+        {
+            if (string.IsNullOrEmpty(TemplatePath))
+                return (null, null);
+
+            var result = await razorRenderer.Value.RenderToStringAsync(
+                TemplatePath,
+                specs.Data,
+                rzv =>
+                {
+                    page = rzv; // keep for better errors
+                    if (rzv.RazorPage is not IRazor asSxc)
+                        return;
+
+                    var dynCode = codeRootFactory.Value
+                        .New(asSxc, Block, Log,
+                            compatibilityFallback: CompatibilityLevels.CompatibilityLevel12);
+
+                    asSxc.ConnectToRoot(dynCode);
+                    // Note: Don't set the purpose here any more, it's a deprecated feature in 12+
+                },
+                App,
+                new(App.AppId, Edition, App.Name)
+            );
+            var writer = new StringWriter();
+            await writer.WriteAsync(result);
+            return (writer, null);
+        }
+        catch (Exception maybeIEntityCast)
+        {
+            return (null, errorHelp.Value.AddHelpIfKnownError(maybeIEntityCast, page));
+        }
+
+        // WIP https://github.com/dotnet/aspnetcore/blob/master/src/Mvc/Mvc.Razor.RuntimeCompilation/src/RuntimeViewCompiler.cs#L397-L404
+        // maybe also https://stackoverflow.com/questions/48206993/how-to-load-asp-net-core-razor-view-dynamically-at-runtime
+        // later also check loading more DLLs on https://stackoverflow.com/questions/58685966/adding-assemblies-types-to-be-made-available-to-razor-page-at-runtime
+
     }
 }

@@ -1,0 +1,109 @@
+﻿using ToSic.Eav.Apps;
+using ToSic.Eav.DataSource;
+using ToSic.Sxc.Blocks.Sys.Problems;
+using ToSic.Sxc.Blocks.Sys.Views;
+using ToSic.Sxc.Context.Sys;
+using IApp = ToSic.Sxc.Apps.IApp;
+
+namespace ToSic.Sxc.Blocks.Sys;
+
+/// <summary>
+/// INTERNAL: A unit / block of output in a CMS. 
+/// </summary>
+[InternalApi_DoNotUse_MayChangeWithoutNotice]
+[ShowApiWhenReleased(ShowApiMode.Never)]
+public interface IBlock: IAppIdentity
+{
+    public bool IsInnerBlock { get; }
+
+    /// <summary>
+    /// The module ID or the parent-content-block id, probably not ideal here, but not sure
+    /// </summary>
+    [PrivateApi]
+    int ParentId { get; }
+
+    [PrivateApi]
+    List<ProblemReport> Problems { get; }
+
+    [PrivateApi]
+    int ContentBlockId { get; }
+
+    #region Values related to the current unit of content / the view
+        
+    /// <summary>
+    /// The context we're running in, with tenant, container etc.
+    /// </summary>
+    IContextOfBlock Context { get; }
+
+    /// <summary>
+    /// The view which will be used to render this block
+    /// </summary>
+    IView View { get; }
+    bool ViewIsReady { get; }
+
+    [PrivateApi("unsure if this should be public, or only needed to initialize it?")]
+    BlockConfiguration Configuration { get; }
+
+    /// <summary>
+    /// The app this block is running in
+    /// </summary>
+    IApp App { get; }
+
+    /// <summary>
+    /// The DataSource which delivers data for this block (will be used by the <see cref="IEngine"/> together with the View)
+    /// </summary>
+    IDataSource Data { get; }
+
+    [PrivateApi("might rename this some time")]
+    bool IsContentApp { get; }
+
+    #endregion
+
+    [PrivateApi("naming not final")]
+    bool ContentGroupExists { get; }
+
+    /// <summary>
+    /// All the keys / features which were added in this block; in case the block should also modify its behavior.
+    /// </summary>
+    /// <remarks>
+    /// Must be a real List, since it will be modified.
+    /// </remarks>
+    [PrivateApi("WIP 13.x do get/set if toolbar/context are used")]
+    List<string> BlockFeatureKeys { get; }
+
+    /// <summary>
+    /// The parent block of this block, if any.
+    /// </summary>
+    [PrivateApi]
+    IBlock? ParentBlockOrNull { get; }
+
+    /// <summary>
+    /// The root block of this block - can be the same as `this`.
+    /// </summary>
+    [PrivateApi]
+    public IBlock RootBlock { get; }
+
+    /// <summary>
+    /// The App is ready when it was added. Other parts (View, Data) may still be missing.
+    /// </summary>
+    bool AppIsReady { get; }
+
+    /// <summary>
+    /// Data is ready when both App and View are available - and then the Data was also initialized.
+    /// </summary>
+    bool DataIsReady { get; }
+
+    bool ConfigurationIsReady { get; }
+
+    IApp? AppOrNull { get; }
+
+    /// <summary>
+    /// This list is only populated on the root builder. Child builders don't actually use this.
+    /// </summary>
+    /// <remarks>
+    /// Must be a real List, because we will add things to it later.
+    /// In the future, should be modified to be read only list, but only once rendering has been improved to pass the data around in a better way.
+    /// </remarks>
+    List<IDependentApp> DependentApps { get; }
+
+}

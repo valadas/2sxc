@@ -1,178 +1,296 @@
 ﻿using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 using Oqtane.Models;
-using Oqtane.Modules;
 using Oqtane.Shared;
-using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
-using System.Threading.Tasks;
-using ToSic.Lib.DI;
-using ToSic.Sxc.Oqt.Client;
 using ToSic.Sxc.Oqt.Client.Services;
 using ToSic.Sxc.Oqt.Shared;
+using ToSic.Sxc.Oqt.Shared.Interfaces;
 using ToSic.Sxc.Oqt.Shared.Models;
-using ToSic.Sxc.Services;
-using ToSic.Sxc.Web.Url;
-using static System.StringComparison;
-using Runtime = Oqtane.Shared.Runtime;
 
 // ReSharper disable once CheckNamespace
-namespace ToSic.Sxc.Oqt.App
+namespace ToSic.Sxc.Oqt.App;
+
+[ShowApiWhenReleased(ShowApiMode.Never)]
+public partial class Index : ModuleProBase
 {
-    public partial class Index : ModuleProBase
+    #region Injected Services
+
+    [Inject] public IOqtSxcRenderService OqtSxcRenderService { get; set; } = null!;
+    [Inject] public OqtPageChangeService OqtPageChangeService { get; set; } = null!;
+    [Inject] public IJSRuntime JsRuntime { get; set; } = null!;
+    [Inject] public IOqtPageChangesOnServerService OqtPageChangesOnServerService { get; set; } = null!;
+    [Inject] public IOqtPrerenderService OqtPrerenderService { get; set; } = null!;
+    [Inject] public RenderSpecificLockManager RenderSpecificLockManager { get; set; } = null!;
+    [Inject] public IRenderInfoService RenderInfoService { get; set; } = null!;
+    #endregion
+
+    #region Oqtane Properties
+
+    public override string RenderMode => RenderModes.Static;
+
+    public override List<Resource> Resources =>
+    [
+        // Reload = true for Oqtane 6.0.0 or older (remove when dependency is updated to Oqtane 6.0.1)
+        new Script($"Modules/{OqtConstants.PackageName}/Module.js"),
+        new Script($"Modules/{OqtConstants.PackageName}/dist/turnOn/turn-on.js"),
+    ];
+
+    #endregion
+
+    #region Shared Variables
+
+    protected string Content { get; private set; } = "";
+
+    private OqtViewResultsDto? _viewResults;
+    private RenderParameters? _renderedParameters;
+    private bool _newDataArrived;
+
+    #endregion
+
+    protected override void OnInitialized()
     {
-        #region Injected Services
+        Log($"2sxc Blazor Logging Enabled on {OqtDebugStateService.Platform}");  // will only show if it's enabled
+        Log($"- ModuleState.RenderMode: {RenderMode}");
+        Log($"- PageState.RenderMode: {PageState?.RenderMode}");
+        Log($"- PageState.Runtime: {PageState?.Runtime}");
+        Log($"- Static SSR: {RenderInfoService.IsStaticSsr(RenderMode)}");
+        Log($"- Blazor Enhanced Nav: {RenderInfoService.IsBlazorEnhancedNav(RenderMode)}");
+        Log($"- SSR Framing: {RenderInfoService.IsSsrFraming(RenderMode)}");
+        Log($"- RendererInfo.IsInteractive: {RendererInfo.IsInteractive}");
+        Log($"- RendererInfo.Name: {RendererInfo.Name}");
+    }
 
-        [Inject] public IOqtSxcRenderService OqtSxcRenderService { get; set; }
-        [Inject] public IOqtPrerenderService OqtPrerenderService { get; set; }
-        [Inject] public LazySvc<IFeaturesService> FeaturesService { get; set; }
+    //protected override async Task OnInitializedAsync()
+    //{
+    //    await base.OnInitializedAsync();
+    //    Log($"2sxc Blazor Logging Enabled on {OqtDebugStateService.Platform}");  // will only show if it's enabled
+    //}
 
-        #endregion
+    /// <summary>
+    /// Lifecycle method is executed for every component parameters change
+    /// </summary>
+    /// <remarks>
+    /// This method is called before the first render of the component and whenever the component's parameters are updated: PageState, ModuleState, ModuleInstance.
+    /// Route change will create new PageState in Oqtane Router, etc...
+    /// </remarks>
+    /// <returns></returns>
+    protected override async Task OnParametersSetAsync()
+    {
+        await base.OnParametersSetAsync();
 
-        #region Shared Variables
-
-        private string RenderedUri { get; set; }
-        private string RenderedPage { get; set; }
-        private bool NewDataArrived { get; set; }
-        public OqtViewResultsDto ViewResults { get; set; }
-
-        #endregion
-
-        #region Oqtane Properties
-
-        public override List<Resource> Resources => new()
+        var @params = new RenderParameters
         {
-            new Resource { ResourceType = ResourceType.Script, Url = $"Modules/{OqtConstants.PackageName}/Module.js" }
+            AliasId = PageState.Alias.AliasId,
+            PageId = PageState.Page.PageId,
+            ModuleId = ModuleState.ModuleId,
+            Culture = CultureInfo.CurrentUICulture.Name,
+            PreRender = IsPrerendering(),
+            OriginalParameters = NavigationManager.ToAbsoluteUri(NavigationManager.Uri).Query
         };
 
-        #endregion
-
-        protected override async Task OnParametersSetAsync()
+        try
         {
-            await base.OnParametersSetAsync();
+            Log($"OnParametersSetAsync(NewDataArrived:{_newDataArrived})");
 
-            Log($"1: OnParametersSetAsync(Debug:{Debug},NewDataArrived:{NewDataArrived},RenderedUri:{RenderedUri},RenderedPage:{RenderedPage})");
-
-            // Call 2sxc engine only when is necessary to render control.
-            if (string.IsNullOrEmpty(RenderedUri) || (!NavigationManager.Uri.Equals(RenderedUri, InvariantCultureIgnoreCase) && NavigationManager.Uri.StartsWith(RenderedPage, InvariantCultureIgnoreCase)))
+            // Call 2sxc engine only when is necessary to render control, because it is heavy operation and
+            // OnParametersSetAsync is executed more than ounce for single page navigation change.
+            // 2sxc module render state depends on AliasId, PageId, ModuleId, Culture, Query...
+            // Optimally it should be executed ounce for single page navigation change, but with correct PageId and ModuleId.
+            // Still during change of PageState and ModuleState sometimes we get old ModuleId from older page, before we get correct ModuleId from new page.
+            if (ShouldRenderSxcView(@params))
             {
-                RenderedUri = NavigationManager.Uri;
-                Log($"1.1: RenderUri:{RenderedUri}");
-                RenderedPage = NavigationManager.Uri.RemoveQueryAndFragment();
-                Log($"1.2: Initialize2sxcContentBlock");
-                await Initialize2SxcContentBlock();
-                NewDataArrived = true;
-                ViewResults.SystemHtml = OqtPrerenderService.Init(PageState, logger).GetSystemHtml();
-                Csp();
-                Log($"1.3: Csp");
+                Log("Need to render");
+
+                // Ensure that only one thread is rendering the module at a time.
+                // This prevents exception "Some Stream-Wirings were not created" #3291
+                using (await RenderSpecificLockManager.LockAsync(ModuleState.RenderId))
+                {
+                    _viewResults = await RenderSxcView(@params);
+                    if (_viewResults != null)
+                    {
+                        _newDataArrived = true;
+                        Log($"NewDataArrived:{_newDataArrived}");
+
+                        var newContent = OqtPageChangeService.ProcessPageChanges(_viewResults, SiteState, this);
+
+                        #region Static SSR
+                        if (PageState.RenderMode == RenderModes.Static)
+                            if (!RenderInfoService.IsSsrFraming(PageState.RenderMode)) // SSR First load on 2sxc page
+                            {
+                                Log($"SSR First load on 2sxc page - {nameof(OqtPageChangeService.AttachScriptsAndStylesStaticallyInHtml)}");
+                                newContent = OqtPageChangeService.AttachScriptsAndStylesStaticallyInHtml(_viewResults, SiteState, newContent, Theme?.Name ?? "error");
+                            }
+                            else // SSR Partial load after starting on 2sxc page
+                            {
+                                Log($"SSR Partial load after starting on 2sxc page - {nameof(OqtPageChangeService.AttachScriptsAndStylesDynamicallyWithTurnOn)}");
+                                newContent = OqtPageChangeService.AttachScriptsAndStylesDynamicallyWithTurnOn(_viewResults, SiteState, newContent, Theme?.Name ?? "error", ModuleState.RenderId);
+                            }
+                        #endregion
+
+                        if (Content != newContent)
+                        {
+                            Log($"Set Content (old:{Content.Length}; new:{newContent.Length})");
+                            Content = newContent;
+                        }
+
+                        // convenient place to apply Csp HttpHeaders to response
+                        var count = OqtPageChangesOnServerService.ApplyHttpHeaders(_viewResults, this);
+                        Log($"Csp:{count}");
+                    }
+                }
             }
-            
-            Log($"1 end: OnParametersSetAsync(Debug:{Debug},NewDataArrived:{NewDataArrived},RenderedUri:{RenderedUri},RenderedPage:{RenderedPage})");
         }
-
-        /// <summary>
-        /// prepare the html / headers for later rendering
-        /// </summary>
-        private async Task Initialize2SxcContentBlock()
+        catch (Exception ex)
         {
-            var culture = CultureInfo.CurrentUICulture.Name;
-
-            var urlQuery = NavigationManager.ToAbsoluteUri(NavigationManager.Uri).Query;
-            ViewResults = await OqtSxcRenderService.PrepareAsync(
-                PageState.Alias.AliasId,
-                PageState.Page.PageId,
-                ModuleState.ModuleId,
-                culture,
-                urlQuery,
-                IsPreRendering());
-
-            if (!string.IsNullOrEmpty(ViewResults?.ErrorMessage))
-            {
-                Log($"1.2.1: ErrorMessage:{ViewResults.ErrorMessage}");
-                AddModuleMessage(ViewResults.ErrorMessage, MessageType.Warning);
-            }
-
-            Log($"1.2.2: Html:{ViewResults?.Html.Length}", ViewResults);
+            LogError(ex);
         }
+    }
 
-        #region CSP
+    /// <inheritdoc/>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // INTERACTIVE mode only
+        await base.OnAfterRenderAsync(firstRender);
 
-        public bool ApplyCsp = true;
-
-        private void Csp()
+        try
         {
-            if (IsPreRendering() && ApplyCsp // executed only in prerender
-                && (HttpContextAccessor?.HttpContext?.Request?.Path.HasValue == true)
-                && !HttpContextAccessor.HttpContext.Request.Path.Value.Contains("/_blazor"))
-                if (ViewResults?.CspParameters?.Any() ?? false)
-                    OqtPageChangesHelper.ApplyHttpHeaders(ViewResults, FeaturesService, HttpContextAccessor, this);
-
-            ApplyCsp = false; // flag to ensure that code is executed only first time in prerender
-        }
-
-        #endregion
-
-        protected override async Task OnAfterRenderAsync(bool firstRender)
-        {
-            await base.OnAfterRenderAsync(firstRender);
-            
-            Log($"2: OnAfterRenderAsync(firstRender:{firstRender},NewDataArrived:{NewDataArrived},ViewResults:{ViewResults != null})");
+            Log($"OnAfterRenderAsync(firstRender:{firstRender},NewDataArrived:{_newDataArrived},ViewResults:{_viewResults != null})");
 
             // 2sxc part should be executed only if new 2sxc data arrived from server (ounce per view)
-            if (IsSafeToRunJs && NewDataArrived && PageState.Runtime == Runtime.Server && ViewResults != null)
+            if (IsSafeToRunJs && _newDataArrived && _viewResults != null)
             {
-                Log($"2.1: NewDataArrived");
-                NewDataArrived = false;
+                _newDataArrived = false;
 
-
-                #region 2sxc Standard Assets and Header
-
-                // Add Context-Meta first, because it should be available when $2sxc loads
-                if (ViewResults.SxcContextMetaName != null)
-                {
-                    Log($"2.2: RenderUri:{RenderedUri}");
-                    await SxcInterop.IncludeMeta("sxc-context-meta", "name", ViewResults.SxcContextMetaName, ViewResults.SxcContextMetaContents/*, "id"*/); // Oqtane.client 3.3.1
-                }
-
-                // Lets load all 2sxc js dependencies (js / styles)
-                // Not done the official Oqtane way, because that asks for the scripts before
-                // the razor component reported what it needs
-                if (ViewResults.SxcScripts != null)
-                    foreach (var resource in ViewResults.SxcScripts)
-                    {
-                        Log($"2.3: IncludeScript:{resource}");
-                        await SxcInterop.IncludeScript("", resource, "", "", "", "head");
-                    }
-
-                if (ViewResults.SxcStyles != null)
-                    foreach (var style in ViewResults.SxcStyles)
-                    {
-                        Log($"2.4: IncludeCss:{style}");
-                        await SxcInterop.IncludeLink("", "stylesheet", style, "text/css", "", "", "");
-                    }
-
+                #region HTML response, part 2 (Interactive)
+                Log("2.1: NewDataArrived");
+                await OqtPageChangeService.AttachScriptsAndStylesForInteractiveRendering(_viewResults, SxcInterop, this);
                 #endregion
-
-                #region External resources requested by the razor template
-
-                if (ViewResults.TemplateResources != null)
-                {
-                    Log($"2.5: AttachScriptsAndStyles");
-                    await OqtPageChangesHelper.AttachScriptsAndStyles(ViewResults, PageState, SxcInterop, this);
-                }
-
-                if (ViewResults.PageProperties?.Any() ?? false)
-                {
-                    Log($"2.6: UpdatePageProperties");
-                    await OqtPageChangesHelper.UpdatePageProperties(ViewResults, PageState, SxcInterop, this);
-                }
 
                 StateHasChanged();
 
-                #endregion
+                _dotNetObjectReference = DotNetObjectReference.Create(this);
+                // Register ReloadModule
+                //if (PageState.Runtime is Runtime.WebAssembly /*or Runtime.Auto*/) 
+                await JSRuntime.InvokeVoidAsync($"{OqtConstants.PackageName}.registerReloadModule", _dotNetObjectReference, ModuleState.ModuleId);
             }
-            
-            Log($"2 end: OnAfterRenderAsync(firstRender:{firstRender},NewDataArrived:{NewDataArrived},ViewResults:{ViewResults != null})");
+
+            Log($"2 end: OnAfterRenderAsync(firstRender:{firstRender},NewDataArrived:{_newDataArrived},ViewResults:{_viewResults != null})");
+        }
+        catch (Exception ex)
+        {
+            LogError(ex);
         }
     }
+    private DotNetObjectReference<Index>? _dotNetObjectReference;
+
+    // This is called from JS to reload module content from blazor (instead of ajax that breaks blazor)
+    // 2024-07-04 stv, looks that is not necessary anymore, we can probably remove it
+    // we had different strategy for Interactive and SSR to refresh module content on page after edit using 2sxc Edit UI
+    // Interactive use this 'ReloadModule' method to update DOM, but this breaks from Oqtane 5.1.2 because of blazor.web.js
+    // so initial fix was just to reload page with window.location.reload()
+    // but after more testing it looks that strategy we use for Static SSR is good enough for all cases
+    // if this is true we can remove this code in total
+    [JSInvokable("ReloadModule")]
+    public async Task ReloadModule()
+    {
+        var @params = new RenderParameters
+        {
+            AliasId = PageState.Alias.AliasId,
+            PageId = PageState.Page.PageId,
+            ModuleId = ModuleState.ModuleId,
+            Culture = CultureInfo.CurrentUICulture.Name,
+            PreRender = IsPrerendering(),
+            OriginalParameters = NavigationManager.ToAbsoluteUri(NavigationManager.Uri).Query
+        };
+
+        try
+        {
+            Log("3: ReloadModule");
+            _viewResults = await RenderSxcView(@params);
+
+            if (_viewResults != null)
+            {
+                var newContent = _viewResults.FinalHtml;
+
+                OqtPageChangeService.ProcessPageChanges(_viewResults, SiteState, this);
+
+                if (PageState.RenderMode == RenderModes.Static) // Static SSR
+                    newContent = OqtPageChangeService.AttachScriptsAndStylesStaticallyInHtml(_viewResults, SiteState, newContent, Theme?.Name ?? "error");
+                else // Interactive
+                    await OqtPageChangeService.AttachScriptsAndStylesForInteractiveRendering(_viewResults, SxcInterop, this);
+
+                if (Content != newContent) Content = newContent;
+
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            LogError(ex);
+        }
+    }
+
+    public void Dispose()
+    {
+        _dotNetObjectReference?.Dispose();
+    }
+
+    /// <summary>
+    /// Filter to render the control only when is necessary.
+    /// </summary>
+    /// <remarks>
+    /// Call 2sxc engine only when is necessary to render control, because it is heavy operation and
+    /// OnParametersSetAsync is executed more than ounce for single page navigation change.
+    /// 2sxc module render state depends on AliasId, PageId, ModuleId, Culture, Query...
+    /// Optimally it should be executed ounce for single page navigation change, but with correct PageId and ModuleId.
+    /// Still during change of PageState and ModuleState sometimes we get old ModuleId from older page, before we get correct ModuleId from new page.
+    /// </remarks>
+    /// <returns></returns>
+    private bool ShouldRenderSxcView(RenderParameters @params)
+    {
+        // 1st criteria
+        if (!ShouldRender()) return false;
+
+        // first render of new instance of oqtane module
+        if (_renderedParameters == null)
+        {
+            _renderedParameters = @params;
+            return true;
+        }
+
+        // 2nd criteria - render parameters are not changed from the last render
+        if (_renderedParameters.Equals(@params)) return false;
+
+        // render parameters are changed, store them for the next render
+        _renderedParameters = @params;
+        return true;
+    }
+
+    /// <summary>
+    /// Prepare the html / headers for later rendering
+    /// </summary>
+    private async Task<OqtViewResultsDto?> RenderSxcView(RenderParameters @params)
+    {
+        Log("Get html and other view resources from server");
+        var viewResults = await OqtSxcRenderService.RenderAsync(@params);
+
+        if (!string.IsNullOrEmpty(viewResults?.ErrorMessage))
+            LogError(viewResults.ErrorMessage);
+
+        Log($"Html:{viewResults?.Html?.Length ?? -1}");
+
+        // finalize with prerendered html
+        if (viewResults != null)
+            viewResults.PrerenderHtml = OqtPrerenderService.GetPrerenderHtml(@params.PreRender, viewResults, SiteState, ThemeType);
+
+        return viewResults;
+    }
+
+    #region Theme
+    private Theme? Theme => PageState.Site.Themes.FirstOrDefault(theme => theme.Themes.Any(themeControl => themeControl.TypeName == ThemeType));
+
+    private string ThemeType => PageState.Page.ThemeType ?? PageState.Site.DefaultThemeType;
+
+    #endregion
 }

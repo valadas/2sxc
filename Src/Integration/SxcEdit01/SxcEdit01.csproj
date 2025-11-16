@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <CopyRefAssembliesToPublishDirectory>false</CopyRefAssembliesToPublishDirectory>
     <RootNamespace>IntegrationSamples.SxcEdit01</RootNamespace>
     <Configurations>Debug;Release;DebugOqtane;DebugDnn</Configurations>
@@ -16,13 +16,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="6.0.3" />
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" Version="6.0.3" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="9.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\..\eav-server\ToSic.Eav\ToSic.Eav.csproj" />
-    <ProjectReference Include="..\..\..\..\eav-server\ToSic.Lib.Core\ToSic.Lib.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\eav-server\ToSic.Sys.Core\ToSic.Sys.Core.csproj" />
     <ProjectReference Include="..\..\Sxc\ToSic.Sxc.WebApi\ToSic.Sxc.WebApi.csproj" />
   </ItemGroup>
 
@@ -31,7 +30,7 @@
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="@Echo Configuration='$(Configuration)'&#xD;&#xA;@Echo StartWith ='$(Configuration.StartsWith('Debug'))'&#xD;&#xA;@Echo Platform ='$(Platform)'&#xD;&#xA;@Echo ProjectDir '$(ProjectDir)'&#xD;&#xA;@SET BuildTarget=$(ProjectDir)sys-2sxc&#xD;&#xA;@Echo BuildTarget '%25BuildTarget%25'&#xD;&#xA;&#xD;&#xA;@REM Copy the data folders&#xD;&#xA;robocopy /mir &quot;$(ProjectDir)..\..\Data\.data\ &quot; &quot;%25BuildTarget%25\.data\ &quot;&#xD;&#xA;robocopy /mir &quot;$(ProjectDir)..\..\Data\.databeta\ &quot; &quot;%25BuildTarget%25\.databeta\ &quot;&#xD;&#xA;robocopy /mir &quot;$(ProjectDir)..\..\Data\.data-custom\ &quot; &quot;%25BuildTarget%25\.data-custom\ &quot;&#xD;&#xA;&#xD;&#xA;@Set BuildTarget=$(ProjectDir)\wwwroot\system\sxc&#xD;&#xA;Echo Will copy js &amp; css to %25BuildTarget%25&#xD;&#xA;&#xD;&#xA;@REM Copy 2sxc JS stuff&#xD;&#xA;robocopy /mir &quot;$(Dev2sxcAssets)\js\ &quot; &quot;%25BuildTarget%25\js\ &quot;&#xD;&#xA;robocopy /mir &quot;$(Dev2sxcAssets)\dist\ &quot; &quot;%25BuildTarget%25\dist\ &quot;&#xD;&#xA;robocopy /mir &quot;$(Dev2sxcAssets)\system\ &quot; &quot;%25BuildTarget%25\system\ &quot;&#xD;&#xA;" />
+    <Exec Command="@Echo Configuration='$(Configuration)'&#xD;&#xA;@Echo StartWith ='$(Configuration.StartsWith('Debug'))'&#xD;&#xA;@Echo Platform ='$(Platform)'&#xD;&#xA;@Echo ProjectDir '$(ProjectDir)'&#xD;&#xA;@SET BuildTarget=$(ProjectDir)sys-2sxc&#xD;&#xA;@Echo BuildTarget '%25BuildTarget%25'&#xD;&#xA;&#xD;&#xA;@REM Copy the data folders&#xD;&#xA;robocopy /mir &quot;$(ProjectDir)..\..\Data\.data\ &quot; &quot;%25BuildTarget%25\.data\ &quot;&#xD;&#xA;robocopy /mir &quot;$(ProjectDir)..\..\Data\.databeta\ &quot; &quot;%25BuildTarget%25\.databeta\ &quot;&#xD;&#xA;robocopy /mir &quot;$(ProjectDir)..\..\Data\.data-custom\ &quot; &quot;%25BuildTarget%25\.data-custom\ &quot;&#xD;&#xA;&#xD;&#xA;@Set BuildTarget=$(ProjectDir)\wwwroot\system\sxc&#xD;&#xA;Echo Will copy js &amp; css to %25BuildTarget%25&#xD;&#xA;&#xD;&#xA;@REM Copy 2sxc JS stuff&#xD;&#xA;robocopy /mir &quot;$(Source)\js\ &quot; &quot;%25BuildTarget%25\js\ &quot;&#xD;&#xA;robocopy /mir &quot;$(Source)\dist\ &quot; &quot;%25BuildTarget%25\dist\ &quot;&#xD;&#xA;robocopy /mir &quot;$(Source)\system\ &quot; &quot;%25BuildTarget%25\system\ &quot;&#xD;&#xA;" />
   </Target>
 
 </Project>

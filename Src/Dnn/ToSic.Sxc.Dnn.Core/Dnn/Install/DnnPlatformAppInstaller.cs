@@ -1,69 +1,53 @@
-﻿using System;
-using System.Linq;
-using ToSic.Eav.Apps;
-using ToSic.Eav.Apps.Parts;
+﻿using ToSic.Eav.Apps;
+using ToSic.Eav.Apps.Sys.Work;
 using ToSic.Eav.Context;
-using ToSic.Lib.DI;
-using ToSic.Lib.Logging;
-using ToSic.Lib.Services;
-using ToSic.Sxc.Apps;
+using ToSic.Sxc.Apps.Sys.Installation;
+using ToSic.Sxc.Apps.Sys.Work;
 using ToSic.Sxc.Context;
 using ToSic.Sxc.Dnn.Context;
-using ToSic.Sxc.Run;
+using ToSic.Sxc.WebApi.Sys.ExternalLinks;
 
-namespace ToSic.Sxc.Dnn.Install
+namespace ToSic.Sxc.Dnn.Install;
+
+internal class DnnPlatformAppInstaller(
+    LazySvc<IAppsCatalog> appsCatalog,
+    GenWorkPlus<WorkViews> workViews,
+    LazySvc<ExternalLinksService> remoteRouterLazy)
+    : ServiceBase("Dnn.AppIns", connect: [workViews, appsCatalog, remoteRouterLazy]), IPlatformAppInstaller
 {
-    public class DnnPlatformAppInstaller: ServiceBase, IPlatformAppInstaller
+    public string GetAutoInstallPackagesUiUrl(ISite site, IModule module, bool forContentApp)
     {
-        private readonly LazySvc<IAppStates> _appStatesLazy;
-        private readonly LazySvc<CmsRuntime> _cmsRuntimeLazy;
-        private readonly LazySvc<RemoteRouterLink> _remoteRouterLazy;
+        var l = Log.Fn<string>();
+        var moduleInfo = (module as DnnModule)?.GetContents();
+        var portal = (site as DnnSite)?.GetContents();
+        if (moduleInfo == null || portal == null)
+            throw l.Done(new ArgumentException("missing portal/module"));
 
-        public DnnPlatformAppInstaller(LazySvc<IAppStates> appStatesLazy,
-            LazySvc<CmsRuntime> cmsRuntimeLazy, LazySvc<RemoteRouterLink> remoteRouterLazy) : base("Dnn.AppIns")
-        {
-            ConnectServices(
-                _appStatesLazy = appStatesLazy,
-                _cmsRuntimeLazy = cmsRuntimeLazy,
-                _remoteRouterLazy = remoteRouterLazy
-            );
-        }
+        // new: check if it should allow this
+        // it should only be allowed, if the current situation is either
+        // Content - and no views exist (even invisible ones)
+        // App - and no apps exist - this is already checked on client side, so I won't include a check here
+        if (forContentApp)
+            try
+            {
+                var primaryAppId = appsCatalog.Value.DefaultAppIdentity(site.ZoneId);
+                // we'll usually run into errors if nothing is installed yet, so on errors, we'll continue
+                var contentViews = workViews.New(primaryAppId).GetAll();
+                if (contentViews.Any()) return null;
+            }
+            catch
+            {
+                /* ignore */
+            }
 
-        public string GetAutoInstallPackagesUiUrl(ISite site, IModule module, bool forContentApp) => Log.Func(() =>
-        {
-            var moduleInfo = (module as DnnModule)?.GetContents();
-            var portal = (site as DnnSite)?.GetContents();
-            if (moduleInfo == null || portal == null)
-                throw new ArgumentException("missing portal/module");
+        var gettingStartedSrc = remoteRouterLazy.Value.LinkToDestination(
+            ExternalSxcDestinations.AutoConfigure,
+            site,
+            module.Id,
+            appSpecsOrNull: null,
+            forContentApp);
 
-            // new: check if it should allow this
-            // it should only be allowed, if the current situation is either
-            // Content - and no views exist (even invisible ones)
-            // App - and no apps exist - this is already checked on client side, so I won't include a check here
-            if (forContentApp)
-                try
-                {
-                    var primaryAppId = _appStatesLazy.Value.IdentityOfDefault(site.ZoneId);
-                    // we'll usually run into errors if nothing is installed yet, so on errors, we'll continue
-                    var contentViews = _cmsRuntimeLazy.Value
-                        .InitQ(primaryAppId)
-                        .Views.GetAll();
-                    if (contentViews.Any()) return null;
-                }
-                catch
-                {
-                    /* ignore */
-                }
-
-            var gettingStartedSrc = _remoteRouterLazy.Value.LinkToRemoteRouter(
-                RemoteDestinations.AutoConfigure,
-                site,
-                module.Id,
-                app: null,
-                forContentApp);
-
-            // Set src to iframe
-            return gettingStartedSrc;
-        });
+        // Set src to iframe
+        return l.ReturnAsOk(gettingStartedSrc);
     }
 }

@@ -1,11 +1,11 @@
-﻿using System;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc.Razor;
+﻿using Microsoft.AspNetCore.Mvc.Razor;
+using ToSic.Sxc.Apps;
+using ToSic.Sxc.Code.Sys.HotBuild;
 
-namespace ToSic.Sxc.Razor
+namespace ToSic.Sxc.Razor;
+
+[ShowApiWhenReleased(ShowApiMode.Never)]
+public interface IRazorRenderer
 {
-    public interface IRazorRenderer
-    {
-        Task<string> RenderToStringAsync<TModel>(string partialName, TModel model, Action<RazorView> configure = null);
-    }
+    Task<string> RenderToStringAsync<TModel>(string templatePath, TModel model, Action<RazorView> configure, IApp app, HotBuildSpec hotBuildSpec);
 }

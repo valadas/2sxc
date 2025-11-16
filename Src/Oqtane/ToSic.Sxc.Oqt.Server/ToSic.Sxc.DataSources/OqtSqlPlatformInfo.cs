@@ -1,32 +1,23 @@
-﻿using System;
-using Oqtane.Infrastructure;
+﻿using Oqtane.Infrastructure;
 using Oqtane.Shared;
-using ToSic.Eav.DataSources;
-using ToSic.Eav.Plumbing;
-using ToSic.Lib.DI;
+using ToSic.Eav.DataSources.Sys;
+using ToSic.Sys.Utils;
 
-namespace ToSic.Sxc.Oqt.Server.ToSic.Sxc.DataSources
+namespace ToSic.Sxc.Oqt.Server.ToSic.Sxc.DataSources;
+
+internal class OqtSqlPlatformInfo(LazySvc<IConfigManager> configManager) : SqlPlatformInfo
 {
-    public class OqtSqlPlatformInfo: SqlPlatformInfo
+    public override string DefaultConnectionStringName => SettingKeys.ConnectionStringKey;
+
+    public override string FindConnectionString(string name)
     {
-        private readonly LazySvc<IConfigManager> _configManager;
-        public override string DefaultConnectionStringName => SettingKeys.ConnectionStringKey;
+        if (name.EqualsInsensitive(DefaultConnectionStringName))
+            return configManager.Value.GetSetting("ConnectionStrings:" + SettingKeys.ConnectionStringKey, "");
 
-        public OqtSqlPlatformInfo(LazySvc<IConfigManager> configManager)
-        {
-            _configManager = configManager;
-        }
-
-        public override string FindConnectionString(string name)
-        {
-            if (name.EqualsInsensitive(DefaultConnectionStringName))
-                return _configManager.Value.GetSetting("ConnectionStrings:" + SettingKeys.ConnectionStringKey, "");
-
-            // TODO
-            // Where are all the connection strings stored, I think base... doesn't work
-            // Where would the site connection string be?
-            return base.FindConnectionString(name);
-        }
-
+        // TODO
+        // Where are all the connection strings stored, I think base... doesn't work
+        // Where would the site connection string be?
+        return base.FindConnectionString(name);
     }
+
 }

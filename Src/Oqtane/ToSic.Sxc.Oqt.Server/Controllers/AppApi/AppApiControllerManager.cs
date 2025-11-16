@@ -1,65 +1,120 @@
 ﻿using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.Routing;
-using System.Collections.Concurrent;
-using System.IO;
-using System.Linq;
 using System.Reflection;
-using System.Threading.Tasks;
-using ToSic.Lib.Logging;
-using ToSic.Sxc.Oqt.Server.Code;
+using ToSic.Eav.Apps.Sys;
+using ToSic.Eav.Sys;
+using ToSic.Sxc.Backend.Context;
+using ToSic.Sxc.Code.Sys.HotBuild;
+using ToSic.Sxc.Context.Sys;
+using ToSic.Sxc.Oqt.Server.Code.Sys;
 using ToSic.Sxc.Oqt.Server.Plumbing;
-using File = System.IO.File;
-using Log = ToSic.Lib.Logging.Log;
+using ToSic.Sxc.Polymorphism.Sys;
+using ToSic.Sys.Utils;
+using Log = ToSic.Sys.Logging.Log;
 
-namespace ToSic.Sxc.Oqt.Server.Controllers.AppApi
+namespace ToSic.Sxc.Oqt.Server.Controllers.AppApi;
+
+/// <summary>
+/// Manage app api controller compilation and registration so we can invoke action latter.
+/// </summary>
+internal class AppApiControllerManager : IHasLog
 {
-    /// <summary>
-    /// Manage app api controller compilation and registration so we can invoke action latter.
-    /// </summary>
-    public class AppApiControllerManager: IHasLog
+    public AppApiControllerManager(ApplicationPartManager partManager, ILogStore logStore, Generator<Compiler> compiler, IWebApiContextBuilder webApiContextBuilder, PolymorphConfigReader polymorphism,
+        AppCodeLoader appCodeLoader)
     {
-        public AppApiControllerManager(ApplicationPartManager partManager, AppApiFileSystemWatcher appApiFileSystemWatcher, ILogStore logStore)
+        _partManager = partManager;
+        _compiler = compiler;
+        _webApiContextBuilder = webApiContextBuilder;
+        _polymorphism = polymorphism;
+        _appCodeLoader = appCodeLoader;
+        Log = new Log(HistoryLogName, null, "AppApiControllerManager");
+        logStore.Add(HistoryLogGroup, Log);
+    }
+    private readonly ApplicationPartManager _partManager;
+    private readonly Generator<Compiler> _compiler;
+    private readonly IWebApiContextBuilder _webApiContextBuilder;
+    private readonly PolymorphConfigReader _polymorphism;
+    private readonly AppCodeLoader _appCodeLoader;
+
+    public ILog Log { get; }
+
+    protected string HistoryLogGroup { get; } = "app-api";
+
+    protected string HistoryLogName => "Controller.Manager";
+
+    private static readonly object LockObject = new();
+
+    /// <summary>
+    /// Compile and register dyncode app api controller (for new or updated app api).
+    /// </summary>
+    /// <param name="values"></param>
+    /// <returns></returns>
+    public async ValueTask<bool> PrepareController(RouteValueDictionary values)
+    {
+        var l = Log.Fn<bool>();
+
+        var apiFile = (string)values["apiFile"];
+        var dllName = (string)values["dllName"];
+        var appFolder = (string)values["appFolder"];
+        var controllerTypeName = (string)values["controllerTypeName"];
+        l.A($"{nameof(apiFile)}:'{apiFile}'; {nameof(dllName)}:'{dllName}'; {nameof(appFolder)}:'{appFolder}'; {nameof(controllerTypeName)}:'{controllerTypeName}'");
+
+        // If we have a key (that controller is compiled and registered, but not updated) controller was prepared before, so just return values.
+        // Alternatively remove older version of AppApi controller (if we got updated flag from file system watcher).
+        if (AppApiFileSystemWatcher.CompiledAppApiControllers.TryGetValue(apiFile, out var appApiCacheItem))
         {
-            _partManager = partManager;
-            _compiledAppApiControllers = appApiFileSystemWatcher.CompiledAppApiControllers;
-            Log = new Log(HistoryLogName, null, "AppApiControllerManager");
-            logStore.Add(HistoryLogGroup, Log);
-        }
-        private readonly ConcurrentDictionary<string, bool> _compiledAppApiControllers;
-        private readonly ApplicationPartManager _partManager;
+            if (!appApiCacheItem.FlagForRemove)
+                return l.ReturnTrue($"ok, nothing to do, AppApi Controller is already compiled and added to ApplicationPart: {apiFile}.");
 
-        public ILog Log { get; }
-
-        protected string HistoryLogGroup { get; } = "app-api";
-
-        protected string HistoryLogName => "Controller.Manager";
-
-        /// <summary>
-        /// Compile and register dyncode app api controller (for new or updated app api).
-        /// </summary>
-        /// <param name="values"></param>
-        /// <returns></returns>
-        public async ValueTask<bool> PrepareController(RouteValueDictionary values)
-        {
-            var wrapLog = Log.Fn<bool>();
-
-            var apiFile = (string)values["apiFile"];
-            var dllName = (string)values["dllName"];
-
-            // If we have a key (that controller is compiled and registered, but not updated) controller was prepared before, so just return values.
-            // Alternatively remove older version of AppApi controller (if we got updated flag from file system watcher).
-            if (_compiledAppApiControllers.TryGetValue(apiFile, out var updated))
+            lock (LockObject) // Only one thread can enter this block at a time
             {
-                Log.A($"_compiledAppApiControllers have value: {updated} for: {apiFile}.");
-                if (updated)
-                    RemoveController(dllName, apiFile);
-                else
-                    return wrapLog.ReturnTrue($"ok, nothing to do, AppApi Controller is already compiled and added to ApplicationPart: {apiFile}.");
+                // Remove older version of AppApi controller
+                l.A($"remove old version of controller for: {apiFile}.");
+
+                l.A(AppApiFileSystemWatcher.CompiledAppApiControllers.TryRemove(apiFile, out _)
+                    ? $"AppApi controller cache item removed for {apiFile}."
+                    : $"Error, can't remove AppApi controller cache item for {apiFile}.");
+
+                var dllNameToRemove = (appApiCacheItem.IsAppCode ? appApiCacheItem.DllName : dllName);
+                l.A($"RemoveController: {dllNameToRemove} (ApplicationParts removed: {RemoveController(apiFile, dllNameToRemove)})");
+            }
+        }
+
+        l.A($"We need to prepare controller for: {apiFile}.");
+
+        lock (LockObject) // Only one thread can enter this block at a time
+        {
+            // 1. check AppCode
+            l.A("Search for AppApi controller in AppCode");
+            var spec = BuildHotBuildSpec(appFolder);
+            var (result, _) = _appCodeLoader.GetAppCode(spec);
+            if (result?.Assembly != null)
+            {
+                l.A($"search in AppCode:{spec} for controller Type by its name {nameof(controllerTypeName)}:'{controllerTypeName}'");
+                var type = result.Assembly.FindControllerTypeByName(controllerTypeName);
+                if (type != null)
+                {
+                    l.A($"Controller Type found: {type.Name} in AppCode: {result.Assembly.GetName().Name}");
+
+
+                    if (AppApiFileSystemWatcher.CompiledAppApiControllers.TryAdd(apiFile, new()
+                    {
+                        FlagForRemove = false,
+                        IsAppCode = true,
+                        AppCodePath = GetAppCodePathFromWatcherFolders(result.WatcherFolders),
+                        DllName = result.Assembly.GetName().Name
+                    }))
+                    {
+                        l.A($"{nameof(AppApiFileSystemWatcher.CompiledAppApiControllers)} AppApi controller cache item added for '{apiFile}'."); // Add new key to concurrent dictionary, before registering new AppAPi controller.
+                                                                                                                                                 // Register new AppApi Controller.
+                        l.A($"ApplicationPart from AppCode added: {AddController(result.Assembly)}");
+                    }
+                    return l.ReturnTrue("Api controller from AppCode");
+                }
             }
 
-            Log.A($"We need to prepare controller for: {apiFile}.");
-
-            // Check for AppApi file
+            // 2. Check for AppApi file
+            l.A($"Search for AppApi controller file:{apiFile}.");
             if (!File.Exists(apiFile))
                 throw new IOException($"Error, missing AppApi file {Path.GetFileName(apiFile)}.");
 
@@ -67,62 +122,116 @@ namespace ToSic.Sxc.Oqt.Server.Controllers.AppApi
             // because when the file changes, the type-object will be different, so please don't optimize :)
 
             // Check for AppApi source code
-            var apiCode = await File.ReadAllTextAsync(apiFile);
+            var apiCode = File.ReadAllText(apiFile);
             if (string.IsNullOrWhiteSpace(apiCode))
-                throw new IOException($"Error, missing AppApi code in file {Path.GetFileName(apiFile)}.");
+                throw new IOException($"Error, missing AppApi code in file '{apiFile}'.");
 
             // Build new AppApi Controller
-            Log.A($"Compile assembly: {apiFile}, {dllName}");
-            var assembly = new Compiler().Compile(apiFile, dllName);
+            l.A($"Compile assembly: {apiFile}; {nameof(dllName)}: '{dllName}'; {spec}");
+            var assemblyResult = _compiler.New().Compile(apiFile, dllName, spec);
 
             // Add new key to concurrent dictionary, before registering new AppAPi controller.
-            if (!_compiledAppApiControllers.TryAdd(apiFile, false))
-                throw new IOException($"Error, can't register updated controller {Path.GetFileName(apiFile)} because older controller is already registered. Please try again in few moments.");
+            if (!AppApiFileSystemWatcher.CompiledAppApiControllers.TryAdd(apiFile, new()))
+                throw new IOException($"Error, can't register updated controller '{controllerTypeName}' because older controller is already registered. Please try again in few moments.");
 
             // Register new AppApi Controller.
-            AddController(dllName, assembly);
-
-            return wrapLog.ReturnTrue($"ok, Controller is compiled and added to ApplicationParts: {apiFile}.");
+            l.A($"ApplicationPart from file added: {AddController(assemblyResult.Assembly, dllName)}");
         }
 
-        private void AddController(string dllName, Assembly assembly)
+        return l.ReturnTrue($"ok, Controller is compiled and added to ApplicationParts: {apiFile}.");
+    }
+
+
+    /// <summary>
+    /// Build HotBuildSpec for AppApi controller compilation.
+    /// </summary>
+    /// <param name="appFolder"></param>
+    /// <returns></returns>
+    private HotBuildSpec BuildHotBuildSpec(string appFolder)
+    {
+        var l = Log.Fn<HotBuildSpec>($"{appFolder}:'{appFolder}'", timer: true);
+
+        // Prepare / Get App State, while possibly also initializing the App...
+        var ctxResolver = _webApiContextBuilder.PrepareContextResolverForApiRequest();
+        var appReader = ctxResolver.SetAppOrGetBlock(appFolder)?.AppReaderRequired;
+
+        // Figure out the current edition
+        var edition = FigureEdition(ctxResolver).TrimLastSlash();
+
+        var spec = new HotBuildSpec(appReader?.AppId ?? KnownAppsConstants.AppIdEmpty, edition: edition, appReader?.Specs.Name);
+
+        return l.ReturnAsOk(spec);
+    }
+
+    /// <summary>
+    /// Figure out the current edition for HotBuildSpec.
+    /// </summary>
+    /// <returns></returns>
+    private string FigureEdition(ISxcCurrentContextService ctxService)
+    {
+        var l = Log.Fn<string>(timer: true);
+
+        var block = ctxService.BlockOrNull();
+        var edition = block.NullOrGetWith(_polymorphism.UseViewEditionOrGet);
+
+        return l.Return(edition);
+    }
+
+    private string GetAppCodePathFromWatcherFolders(IDictionary<string, bool> watcherFolders)
+        => watcherFolders.FirstOrDefault(x => x.Key.EndsWith(FolderConstants.AppCodeFolder)).Key;
+
+    private bool AddController(Assembly assembly, string dllName = null)
+    {
+        var l = Log.Fn<bool>($"{nameof(dllName)}: '{dllName}'", timer: true);
+
+        dllName ??= assembly.GetName().Name;
+        l.A($"TryAdd ApplicationPart:'{dllName}'.");
+
+        if (_partManager.ApplicationParts
+            .ToList() // ToList() prevents exception 'Collection was modified; enumeration operation may not execute'
+            .Any(a => a.Name.Equals($"{Path.GetFileNameWithoutExtension(dllName)}.dll")))
+            return l.ReturnFalse($"OK, can't add ApplicationPart:'{dllName}' because it was already added before.");
+
+        // Add ApplicationPart
+        _partManager.ApplicationParts.Add(new CompilationReferencesProvider(assembly));
+
+        // Notify change
+        NotifyChange();
+
+        return l.ReturnTrue($"OK, applicationPart:'{dllName}' added.");
+    }
+
+    private bool RemoveController(string apiFile, string dllName)
+    {
+        var l = Log.Fn<bool>($"{nameof(apiFile)}: '{apiFile}'; {nameof(dllName)}: '{dllName}'", timer: true);
+
+        l.A($"In ApplicationParts, find AppApi controller: '{dllName}'.");
+        // In edge cases the part may be already registered more than once, so we want to clean all
+        var applicationParts = _partManager.ApplicationParts
+            .Where(a => a.Name.Equals($"{Path.GetFileNameWithoutExtension(dllName)}.dll"))
+            .ToList();
+
+        if (!applicationParts.Any())
+            return l.ReturnFalse($"In ApplicationParts, can't find AppApi controller to remove: {dllName}");
+
+        var countRemoved = 0;
+        foreach (var applicationPart in applicationParts)
         {
-            Log.A($"Add ApplicationPart: {dllName}");
-            _partManager.ApplicationParts.Add(new CompilationReferencesProvider(assembly));
-            // Notify change
-            NotifyChange();
+            if (!_partManager.ApplicationParts.Remove(applicationPart)) continue;
+
+            l.A($"From ApplicationParts, remove AppApi controller: {dllName}.");
+            countRemoved++;
         }
+        if (countRemoved > 0) NotifyChange();
 
-        private void RemoveController(string dllName, string apiFile)
-        {
-            Log.A($"In ApplicationParts, find AppApi controller: {dllName}.");
-            // In edge cases the part may be already registered more than once, so we want to really clean all
-            var applicationParts = _partManager.ApplicationParts
-                .Where(a => a.Name.Equals($"{dllName}.dll"))
-                .ToList();
+        return l.Return(countRemoved > 0, $"ApplicationParts removed: {countRemoved}");
+    }
 
-            if (applicationParts.Any())
-            {
-                foreach (var applicationPart in applicationParts)
-                {
-                    Log.A($"From ApplicationParts, remove AppApi controller: {dllName}.");
-                    _partManager.ApplicationParts.Remove(applicationPart);
-
-                    Log.A(_compiledAppApiControllers.TryRemove(apiFile, out var removeValue)
-                        ? $"Value removed: {removeValue} for {apiFile}."
-                        : $"Error, can't remove value for {apiFile}.");
-                }
-                NotifyChange();
-            }
-            else
-                Log.A($"In ApplicationParts, can't find AppApi controller: {dllName}");
-        }
-
-        private static void NotifyChange()
-        {
-            // Notify change
-            AppApiActionDescriptorChangeProvider.Instance.HasChanged = true;
-            AppApiActionDescriptorChangeProvider.Instance.TokenSource.Cancel();
-        }
+    private void NotifyChange()
+    {
+        // Notify change
+        Log.A("Notify change");
+        AppApiActionDescriptorChangeProvider.Instance.HasChanged = true;
+        AppApiActionDescriptorChangeProvider.Instance.TokenSource.Cancel();
     }
 }

@@ -1,52 +1,54 @@
 ﻿using Oqtane.Shared;
-using System.Collections.Generic;
-using System.Linq;
 using ToSic.Sxc.Oqt.Shared.Models;
-using ToSic.Sxc.Web;
-using ToSic.Sxc.Web.PageFeatures;
+using ToSic.Sxc.Sys.Render.PageFeatures;
+using ToSic.Sxc.Web.Sys.ClientAssets;
 
-namespace ToSic.Sxc.Oqt.Server.Blocks.Output
+namespace ToSic.Sxc.Oqt.Server.Blocks.Output;
+
+partial class OqtPageOutput
 {
-    public partial class OqtPageOutput
+    /// <summary>
+    /// The JavaScript and Style assets
+    /// from razor template and manual features
+    /// </summary>
+    /// <returns></returns>
+    public List<SxcResource> GetSxcResources()
     {
-        /// <summary>
-        /// The JavaScript and Style assets
-        /// from razor template and manual features
-        /// </summary>
-        /// <returns></returns>
-        public List<SxcResource> GetSxcResources()
-        {
-            // assets from razor template
-            var resources = SxcResourcesBuilder(RenderResult.Assets);
-            // assets from manual features
-            resources.AddRange(SxcResourcesBuilder(GetAssetsFromManualFeatures(RenderResult.FeaturesFromSettings)));
-            return resources;
-        }
+        // assets from razor template
+        var resources = SxcResourcesBuilder(RenderResult.Assets);
+        // assets from manual features
+        resources.AddRange(SxcResourcesBuilder(GetAssetsFromManualFeatures(RenderResult.FeaturesFromResources)));
+        return resources;
+    }
 
-        private static List<SxcResource> SxcResourcesBuilder(IList<IClientAsset> assets)
-        {
-            var resources = assets.Select(a => new SxcResource
+    private static List<SxcResource> SxcResourcesBuilder(IList<ClientAsset> assets)
+    {
+        var resources = assets
+            .Select(a => new SxcResource
             {
                 ResourceType = a.IsJs ? ResourceType.Script : ResourceType.Stylesheet,
                 Url = a.Url,
                 IsExternal = a.IsExternal,
                 Content = a.Content,
                 UniqueId = a.Id,
-                HtmlAttributes = a.HtmlAttributes // will copy HtmlAttributes and also try to set Integrity and CrossOrigin properties
-            }).ToList();
-            return resources;
-        }
+                HtmlAttributes =
+                    a.HtmlAttributes // will copy HtmlAttributes and also try to set Integrity and CrossOrigin properties
+            })
+            .ToList();
+        return resources;
+    }
 
-        private List<IClientAsset> GetAssetsFromManualFeatures(IList<IPageFeature> manualFeatures)
+    private List<ClientAsset> GetAssetsFromManualFeatures(IList<PageFeatureFromSettings> manualFeatures)
+    {
+        var assets = new List<ClientAsset>();
+        foreach (var manualFeature in manualFeatures)
         {
-            var assets = new List<IClientAsset>();
-            foreach (var manualFeature in manualFeatures)
-            {
-                // process manual features to get assets
-                var result = _blockResourceExtractor.Process(manualFeature.Html);
-                assets.AddRange(result.Assets);
-            }
-            return assets;
+            // process manual features to get assets
+            if (manualFeature.Html == null)
+                continue; // skip if no HTML is defined
+            var result = blockResourceExtractor.Process(manualFeature.Html);
+            assets.AddRange(result.Assets);
         }
+        return assets;
     }
 }

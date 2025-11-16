@@ -1,71 +1,65 @@
-﻿using System;
-using System.Web;
+﻿using System.Web;
 using System.Web.UI;
-using ToSic.Eav.Context;
-using ToSic.Lib.DI;
-using ToSic.Lib.Logging;
-using ToSic.Lib.Services;
-using ToSic.Sxc.Code;
 using ToSic.Sxc.Dnn.Services;
 using ToSic.Sxc.Dnn.Web;
-using ToSic.Sxc.Web.PageService;
+using ToSic.Sxc.Services.Sys.DynamicCodeService;
+using ToSic.Sxc.Sys.Render.PageContext;
+using ToSic.Sxc.Web.Sys.PageService;
+using ToSic.Sys.Users;
 
-namespace ToSic.Sxc.Dnn.Code
+namespace ToSic.Sxc.Dnn.Code;
+
+/// <summary>
+/// Dnn implementation
+/// goal is that we can hook into certain page lifecycle events to ensure changes
+/// happen to the page when necessary
+/// </summary>
+internal class DnnDynamicCodeService: DynamicCodeService
 {
-    /// <summary>
-    /// Dnn implementation
-    /// goal is that we can hook into certain page lifecycle events to ensure changes
-    /// happen to the page when necessary
-    /// </summary>
-    public class DnnDynamicCodeService: DynamicCodeService
+    public new class MyScopedServices(
+        LazySvc<IPageServiceShared> pageServiceShared,
+        LazySvc<PageChangeSummary> pageChangeSummary,
+        LazySvc<DnnPageChanges> dnnPageChanges,
+        LazySvc<DnnClientResources> dnnClientResources)
+        : DependenciesBase(connect: [pageServiceShared, pageChangeSummary, dnnPageChanges, dnnClientResources])
     {
-        public new class MyScopedServices: MyServicesBase
-        {
-            public LazySvc<PageServiceShared> PageServiceShared { get; }
-            public LazySvc<PageChangeSummary> PageChangeSummary { get; }
-            public LazySvc<DnnPageChanges> DnnPageChanges { get; }
-            public LazySvc<DnnClientResources> DnnClientResources { get; }
-
-            public MyScopedServices(
-                LazySvc<PageServiceShared> pageServiceShared,
-                LazySvc<PageChangeSummary> pageChangeSummary,
-                LazySvc<DnnPageChanges> dnnPageChanges,
-                LazySvc<DnnClientResources> dnnClientResources
-                )
-            {
-                ConnectServices(
-                    PageServiceShared = pageServiceShared,
-                    PageChangeSummary = pageChangeSummary,
-                    DnnPageChanges = dnnPageChanges,
-                    DnnClientResources = dnnClientResources
-                );
-            }
-        }
-
-        public DnnDynamicCodeService(MyServices services) : base(services, $"{DnnConstants.LogName}.DynCdS")
-        {
-            _scopedServices = ScopedServiceProvider.Build<MyScopedServices>().ConnectServices(Log);
-            _user = services.User;
-            Page = HttpContext.Current?.Handler as Page;
-
-            if (Page != null)
-                Page.PreRender += Page_PreRender;
-        }
-
-        private readonly MyScopedServices _scopedServices;
-        private readonly LazySvc<IUser> _user;
-
-
-        private void Page_PreRender(object sender, EventArgs e) => Log.Do(() =>
-        {
-            var user = _user.Value;
-            var changes = _scopedServices.PageChangeSummary.Value.FinalizeAndGetAllChanges(
-                _scopedServices.PageServiceShared.Value, user.IsContentAdmin);
-            _scopedServices.DnnPageChanges.Value.Apply(Page, changes);
-            var dnnClientResources = _scopedServices.DnnClientResources.Value.Init(Page, false, null);
-            dnnClientResources.AddEverything(changes?.Features);
-        });
-
-        public Page Page;
+        public LazySvc<IPageServiceShared> PageServiceShared { get; } = pageServiceShared;
+        public LazySvc<PageChangeSummary> PageChangeSummary { get; } = pageChangeSummary;
+        public LazySvc<DnnPageChanges> DnnPageChanges { get; } = dnnPageChanges;
+        public LazySvc<DnnClientResources> DnnClientResources { get; } = dnnClientResources;
     }
+
+    public DnnDynamicCodeService(Dependencies services) : base(services, $"{DnnConstants.LogName}.DynCdS")
+    {
+        _scopedServices = ScopedServiceProvider.Build<MyScopedServices>().ConnectServices(Log);
+        _user = services.User;
+        Page = HttpContext.Current?.Handler as Page;
+
+        if (Page != null)
+            Page.PreRender += Page_PreRender;
+    }
+
+    private readonly MyScopedServices _scopedServices;
+    private readonly LazySvc<IUser> _user;
+
+
+    private void Page_PreRender(object sender, EventArgs e)
+    {
+        var l = Log.Fn();
+        var user = _user.Value;
+        var changes = _scopedServices.PageChangeSummary.Value.FinalizeAndGetAllChanges(
+            moduleId: 0, // ignore module Id, we don't expect any caching info here
+            _scopedServices.PageServiceShared.Value,
+            new(),
+            user.IsContentAdmin
+        );
+        _scopedServices.DnnPageChanges.Value.Apply(Page, changes);
+
+        // #RemovedV20 #OldDnnAutoJQuery
+        var dnnClientResources = _scopedServices.DnnClientResources.Value.Init(Page, /*false,*/ null);
+        dnnClientResources.AddEverything(changes?.Features);
+        l.Done();
+    }
+
+    public Page Page;
 }

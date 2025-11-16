@@ -1,5 +1,6 @@
 # Keep ToSic_SexyContent folder
 !ToSIC_SexyContent
+!ToSic.Sxc
 
 # other stuff in the DesktopModules Folder
 /2sxc-docs/*
@@ -20,3 +21,9 @@ Src/Integration/SxcEdit01/wwwroot/adam/*
 /Src/Oqtane/ToSic.Sxc.Oqt.Server/wwwroot/Modules/ToSic.Sxc.Oqtane/js
 /Src/Oqtane/ToSic.Sxc.Oqt.Server/wwwroot/Modules/ToSic.Sxc.Oqtane/system
 *.lutconfig
+
+# Exclude 2sxc-build.config.json
+**/2sxc-build.config.json
+.vs/
+/Src/2sxc Multi-Target Oqt510.sln
+/Src/Dnn/ToSic.Sxc.Dnn/DnnPackageBuilder/ToSic.Sxc.Dnn.dnn

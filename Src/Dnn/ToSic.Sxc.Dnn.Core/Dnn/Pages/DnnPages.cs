@@ -1,55 +1,52 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using DotNetNuke.Entities.Modules;
+﻿using DotNetNuke.Entities.Modules;
 using DotNetNuke.Entities.Tabs;
-using ToSic.Lib.Logging;
-using ToSic.Lib.Services;
+using ToSic.Sxc.Blocks;
 
-namespace ToSic.Sxc.Dnn.Pages
+namespace ToSic.Sxc.Dnn.Pages;
+
+/// <summary>
+/// Temporary solutions - minor service which ATM is only used in WebAPI.
+/// Goal is that this will be more standardized and work across all platforms.
+/// So when we do that, this should implement that interface and become internal.
+/// </summary>
+internal class DnnPages(ILog parentLog) : HelperBase(parentLog, "Dnn.Pages")
 {
-    public class DnnPages: HelperBase
+    internal List<ModuleWithContent> AllModulesWithContent(int portalId)
     {
-        public DnnPages(ILog parentLog) : base(parentLog, "Dnn.Pages")
-        {
-        }
+        var l = Log.Fn<List<ModuleWithContent>>($"{portalId}");
+        var mc = ModuleController.Instance;
+        var tabC = TabController.Instance;
 
-        public List<ModuleWithContent> AllModulesWithContent(int portalId) => Log.Func($"{portalId}", () =>
-        {
-            var mc = ModuleController.Instance;
-            var tabC = TabController.Instance;
+        // create an array with all modules
+        var modules2Sxc = mc.GetModulesByDefinition(portalId, DnnConstants.ModuleNameContent)
+            .ToArray()
+            .Cast<ModuleInfo>()
+            .ToList();
+        var dnnMod2SxcApp = mc.GetModulesByDefinition(portalId, DnnConstants.ModuleNameApp)
+            .ToArray()
+            .Cast<ModuleInfo>()
+            .ToList();
+        var all = modules2Sxc.Union(dnnMod2SxcApp).ToList();
+        Log.A($"Mods for Content: {modules2Sxc.Count}, App: {dnnMod2SxcApp.Count}, Total: {all.Count}");
 
-            // create an array with all modules
-            var modules2Sxc = mc.GetModulesByDefinition(portalId, DnnConstants.ModuleNameContent)
-                .ToArray()
-                .Cast<ModuleInfo>()
-                .ToList();
-            var dnnMod2SxcApp = mc.GetModulesByDefinition(portalId, DnnConstants.ModuleNameApp)
-                .ToArray()
-                .Cast<ModuleInfo>()
-                .ToList();
-            var all = modules2Sxc.Union(dnnMod2SxcApp).ToList();
-            Log.A($"Mods for Content: {modules2Sxc.Count}, App: {dnnMod2SxcApp.Count}, Total: {all.Count}");
+        // filter the results
+        var allMods = all
+            .Where(m => m.DefaultLanguageModule == null)
+            .Where(m => m.ModuleSettings.ContainsKey(ModuleSettingNames.ContentGroup))
+            .ToList();
 
-            // filter the results
-            var allMods = all
-                .Where(m => m.DefaultLanguageModule == null)
-                .Where(m => m.ModuleSettings.ContainsKey(Settings.ModuleSettingContentGroup))
-                .ToList();
+        var result = allMods.Select(m => new ModuleWithContent
+            {
+                Module = m,
+                ContentGroup = Guid.TryParse(m.ModuleSettings[ModuleSettingNames.ContentGroup].ToString(),
+                    out var g)
+                    ? g
+                    : Guid.Empty,
+                Page = tabC.GetTab(m.TabID, portalId)
+            })
+            .Where(set => set.ContentGroup != Guid.Empty)
+            .ToList();
 
-            var result = allMods.Select(m => new ModuleWithContent
-                {
-                    Module = m,
-                    ContentGroup = Guid.TryParse(m.ModuleSettings[Settings.ModuleSettingContentGroup].ToString(),
-                        out var g)
-                        ? g
-                        : Guid.Empty,
-                    Page = tabC.GetTab(m.TabID, portalId)
-                })
-                .Where(set => set.ContentGroup != Guid.Empty)
-                .ToList();
-
-            return (result, $"{allMods.Count}");
-        });
+        return l.Return(result, $"{allMods.Count}");
     }
 }

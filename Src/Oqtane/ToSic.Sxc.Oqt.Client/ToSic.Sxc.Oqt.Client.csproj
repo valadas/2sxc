@@ -1,40 +1,37 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
 
+  <Import Project="../../SharedImports/CsProj.Props/AllImportsForRealCode-NetCore.props" />
+
+  
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
-    <RazorLangVersion>3.0</RazorLangVersion>
-    <AssemblyName>ToSic.Sxc.Oqtane.Client</AssemblyName>
-    <Configurations>Debug;Release;DebugOqtane;DebugDnn</Configurations>
-    <Deterministic>true</Deterministic>
-    <AutoGenerateBindingRedirects>False</AutoGenerateBindingRedirects>
-    <!-- Don't generate assembly properties from this XML which should come from the core file, like version - these lines must be in sync in all ToSic.Eav.*.csproj files -->
-    <GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
-    <GenerateAssemblyFileVersionAttribute>false</GenerateAssemblyFileVersionAttribute>
-    <GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>
-    <GenerateAssemblyProductAttribute>false</GenerateAssemblyProductAttribute>
-    <GenerateAssemblyCompanyAttribute>false</GenerateAssemblyCompanyAttribute>
-    <GenerateAssemblyCopyrightAttribute>false</GenerateAssemblyCopyrightAttribute>
-    <!-- end: Don't generate... -->
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <RootNamespace>ToSic.Sxc.Oqt.Client</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <RazorLangVersion>3.0</RazorLangVersion>
+    <AssemblyName>ToSic.Sxc.Oqtane.Client</AssemblyName>
+  </PropertyGroup>
+  
+  <Import Project="../../SharedImports/CsProj.Props/CreateXDocsOnRelease.props" />
+
   <ItemGroup>
-    <Compile Include="..\..\Sxc\ToSic.Sxc\Properties\AssemblyInfoInherited.cs" Link="Properties\AssemblyInfoInherited.cs" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="9.0.5" /><!-- from Oqtane.Client.csproj -->
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="9.0.5" PrivateAssets="all" /><!-- from Oqtane.Client.csproj -->
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Authentication" Version="9.0.5" /><!-- from Oqtane.Client.csproj -->
+    <PackageReference Include="Microsoft.AspNetCore.Components.Authorization" Version="9.0.5" /><!-- from Oqtane.Maui.csproj -->
+    <PackageReference Include="Microsoft.Extensions.Localization" Version="9.0.5" /><!-- from Oqtane.Client.csproj -->
+    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.5" /><!-- from Oqtane.Client.csproj -->
+    <PackageReference Include="System.Net.Http.Json" Version="9.0.5" /><!-- from Oqtane.Client.csproj -->
+    <PackageReference Include="Oqtane.Client" Version="6.1.3" />
+    <PackageReference Include="Oqtane.Shared" Version="6.1.3" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="6.0.3" />
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="6.0.3" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Authentication" Version="6.0.3" />
-    <PackageReference Include="Microsoft.AspNetCore.Components.Authorization" Version="6.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Localization" Version="6.0.3" />
-    <PackageReference Include="System.Net.Http.Json" Version="6.0.0" />
-    <PackageReference Include="Oqtane.Client" Version="3.4.2" />
-    <PackageReference Include="Oqtane.Shared" Version="3.4.2" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\..\eav-server\ToSic.Lib.Core\ToSic.Lib.Core.csproj" />
-    <ProjectReference Include="..\..\Sxc\ToSic.Sxc\ToSic.Sxc.csproj" />
+    <!--<ProjectReference Include="..\..\..\..\oqtane\oqtane.framework\Oqtane.Client\Oqtane.Client.csproj" />-->
     <ProjectReference Include="..\ToSic.Sxc.Oqt.Shared\ToSic.Sxc.Oqt.Shared.csproj" />
   </ItemGroup>
 
